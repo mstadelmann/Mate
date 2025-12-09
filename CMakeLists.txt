@@ -1,0 +1,35 @@
+# Specify the minimum version for CMake
+cmake_minimum_required(VERSION 3.1)
+
+# Project's name
+# this generates the variable PROJECT_NAME
+project(Mate VERSION 1.0)
+
+# Enable debug symbols - comment these 2 lines if you dont need the debugger!
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+
+
+# Set the output folder where your program will be created
+# CMAKE_SOURCE_DIR -> where to cmake was executed
+# for in-source building: CMAKE_BINARY_DIR = CMAKE_SOURCE_DIR
+set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR}/bin)
+
+# EXECUTABLE_OUTPUT_PATH specify a common place where CMake should put all executable files
+set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
+
+# specify a common place where CMake should put all libraries
+#set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR})
+SET(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
+
+# configure a header file to pass the version number to the source code:
+# configure_file(TutorialConfig.h.in TutorialConfig.h)
+
+# The following folder will be included
+include_directories("${PROJECT_SOURCE_DIR}")
+
+add_executable(${PROJECT_NAME} ${PROJECT_SOURCE_DIR}/src/main.cpp ${PROJECT_SOURCE_DIR}/src/database.cpp ${PROJECT_SOURCE_DIR}/src/utils.cpp ${PROJECT_SOURCE_DIR}/src/chess.cpp)
+
+find_package (SQLite3)
+include_directories(${SQLite3_INCLUDE_DIRS})
+target_link_libraries (${PROJECT_NAME} ${SQLite3_LIBRARIES})
