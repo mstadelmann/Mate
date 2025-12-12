@@ -3,6 +3,26 @@
 
 int main(int argc, char **argv)
 {
+    auto selection = MainMenu();
 
-    MainMenu();
+    switch (selection)
+    {
+    case MainMenuChoice::StartNewGame:
+        cout << "Starting a new game..." << endl;
+        break;
+    case MainMenuChoice::StartEmptyGame:
+        cout << "Starting an empty game..." << endl;
+        break;
+    case MainMenuChoice::LoadFromDatabase:
+        cout << "Loading game from database..." << endl;
+        break;
+    case MainMenuChoice::Help:
+        cout << "Help: Use the menu to select actions." << endl;
+        break;
+    case MainMenuChoice::Quit:
+        cout << "Quitting." << endl;
+        return 0;
+    }
+
+    return 0;
 }

@@ -13,14 +13,43 @@ void printLogo(void)
     cout << "----------------------------------------" << endl
          << endl;
 }
-
-void MainMenu(void)
+MainMenuChoice MainMenu(void)
 {
-    cout << "Main Menu:" << endl;
-    cout << "1. Start New Game" << endl;
-    cout << "2. Load Game from Database" << endl;
-    cout << "3. Help" << endl;
-    cout << "4. Quit" << endl;
+    struct MenuItem
+    {
+        MainMenuChoice choice;
+        const char *label;
+    };
+
+#define MAKE_ITEM(name, label) MenuItem{MainMenuChoice::name, label},
+    static const std::vector<MenuItem> kMainMenuItems = {
+        MAIN_MENU_ITEMS(MAKE_ITEM)};
+#undef MAKE_ITEM
+
+    int choice = -1;
+    while (true)
+    {
+        cout << "Main Menu:" << endl;
+        for (size_t i = 0; i < kMainMenuItems.size(); ++i)
+        {
+            cout << (i + 1) << ". " << kMainMenuItems[i].label << endl;
+        }
+        cout << "Enter choice (1-" << kMainMenuItems.size() << "): " << endl;
+
+        if (!(std::cin >> choice) ||
+            choice < 1 ||
+            choice > static_cast<int>(kMainMenuItems.size()))
+        {
+            std::cin.clear();
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            cout << "Error: please enter a number between 1 and " << kMainMenuItems.size() << "." << endl;
+            continue;
+        }
+
+        break;
+    }
+
+    return kMainMenuItems[static_cast<size_t>(choice - 1)].choice;
 }
 
 void printGameMenu(void)
