@@ -16,10 +16,13 @@ using std::endl;
 using std::string;
 using std::tuple;
 
+void printLogo(void);
+
 #define MAIN_MENU_ITEMS(X)                         \
-    X(StartNewGame, "Start New Game")              \
-    X(StartEmptyGame, "Start Empty Game")          \
-    X(LoadFromDatabase, "Load Game from Database") \
+    X(StartNewGame, "Start new game")              \
+    X(BoardEditor, "Create custom board position") \
+    X(LoadFromDatabase, "Load game from database") \
+    X(StartNetworkGame, "Start network game")      \
     X(Help, "Help")                                \
     X(Quit, "Quit")
 
@@ -29,9 +32,29 @@ enum class MainMenuChoice
     MAIN_MENU_ITEMS(ENUM_ITEM)
 #undef ENUM_ITEM
 };
-void printLogo(void);
+
 MainMenuChoice MainMenu(void);
-void printGameMenu(void);
-void debugMessage(string message, int msg_level);
+
+#define GAME_MENU_ITEMS(X)                  \
+    X(ShowCount, "Show Count")              \
+    X(WriteDB, "Write DB")                  \
+    X(ManualMove, "Enter Manual Move")      \
+    X(SmartMove, "Run Smart Move")          \
+    X(RandomMove, "Run Random Move")        \
+    X(Undo, "Undo Last Move")               \
+    X(Redo, "Redo Last Move")               \
+    X(Help, "Show this help menu")          \
+    X(ListAllMoves, "List all legal moves") \
+    X(ShowHistory, "List game history")     \
+    X(Quit, "Quit Game and return to Main Menu")
+
+enum class GameMenuChoice
+{
+#define ENUM_ITEM(name, label) name,
+    GAME_MENU_ITEMS(ENUM_ITEM)
+#undef ENUM_ITEM
+};
+
+GameMenuChoice GameMenu(void);
 
 #endif /* UTILS_H */
