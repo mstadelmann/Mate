@@ -11,6 +11,9 @@ int main(int argc, char **argv)
     {
     case MainMenuChoice::StartNewGame:
         cout << "Starting a new game..." << endl;
+        game.printCurrentGame();
+        game.load_starting_position();
+        game.printCurrentGame();
         break;
     case MainMenuChoice::StartEmptyGame:
         cout << "Starting an empty game..." << endl;

@@ -2,9 +2,11 @@
 #define CHESS_H
 
 #include <vector>
+#include <string>
 #include <array>
 
 using std::array;
+using std::string;
 using std::vector;
 
 enum class playerColor
@@ -36,9 +38,20 @@ typedef vector<chessboardType> chessboard_historyType;
 
 struct chessPosition
 {
-    int letter = 0;
-    int number = 0;
+    char file; // Vertical column → A-H
+    int rank;  // Horizontal row → 1–8)
 };
+
+// class chessboard
+// {
+// private:
+//     chessboardType board;
+
+// public:
+//     chessboard();
+//     ~chessboard();
+//     void set_piece(chessPosition, piece);
+// };
 
 class chess
 {
@@ -52,6 +65,9 @@ public:
     chess();
     ~chess();
     void load_starting_position();
+    void printCurrentGame();
+    string current_player_string() const;
+    void set_piece(chessPosition, piece);
 };
 
 #endif /* CHESS_H */
