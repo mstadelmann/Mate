@@ -33,7 +33,7 @@ typedef struct pType
     playerColor color;
 } piece;
 
-typedef array<array<piece, 8>, 8> chessboardType;
+typedef array<array<piece, 8>, 8> chessboardType; // chessboardType[file][rank]
 typedef vector<chessboardType> chessboard_historyType;
 
 struct chessPosition
@@ -42,17 +42,6 @@ struct chessPosition
     int rank;  // Horizontal row → 1–8)
 };
 
-// class chessboard
-// {
-// private:
-//     chessboardType board;
-
-// public:
-//     chessboard();
-//     ~chessboard();
-//     void set_piece(chessPosition, piece);
-// };
-
 class chess
 {
 private:
@@ -60,6 +49,7 @@ private:
     chessboard_historyType chessboard_history;
     playerColor current_player;
     playerColor other_player;
+    bool replace_black_pawn;
 
 public:
     chess();

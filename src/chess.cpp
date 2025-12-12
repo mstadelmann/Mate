@@ -1,42 +1,12 @@
 #include "chess.h"
 #include <iostream>
 
-// chessboard::chessboard()
-// {
-//     // Initialize an empty chessboard
-//     for (int row = 0; row < 8; ++row)
-//     {
-//         for (int col = 0; col < 8; ++col)
-//         {
-//             board[row][col].piece = pieceCode::empty;
-//             board[row][col].color = playerColor::none;
-//         }
-//     }
-// }
-
-// chessboard::~chessboard()
-// {
-//     // Destructor logic if needed
-// }
-
-// void chessboard::set_piece(chessPosition pos, piece p)
-// {
-//     int row = pos.rank - 1;   // Convert rank to 0-based index
-//     int col = pos.file - 'A'; // Convert file (A-H) to 0-based index
-
-//     if (row >= 0 && row < 8 && col >= 0 && col < 8)
-//     {
-//         board[row][col] = p;
-//     }
-//     else
-//     {
-//         std::cerr << "Error: Invalid chess position." << std::endl;
-//     }
-// }
-
 chess::chess()
 {
     std::cout << "Initializing chess game..." << std::endl;
+
+    // default values
+    replace_black_pawn = true;
 
     // Initialize players
     current_player = playerColor::white;
@@ -63,12 +33,12 @@ chess::~chess()
 
 void chess::set_piece(chessPosition pos, piece p)
 {
-    int row = pos.rank - 1;   // Convert rank to 0-based index
-    int col = pos.file - 'A'; // Convert file (A-H) to 0-based index
+    int rank = pos.rank - 1;   // Convert rank to 0-based index
+    int file = pos.file - 'A'; // Convert file (A-H) to 0-based index
 
-    if (row >= 0 && row < 8 && col >= 0 && col < 8)
+    if (rank >= 0 && rank < 8 && file >= 0 && file < 8)
     {
-        chessboard[row][col] = p;
+        chessboard[file][rank] = p;
     }
     else
     {
@@ -79,11 +49,11 @@ void chess::set_piece(chessPosition pos, piece p)
 void chess::load_starting_position()
 {
     // Set up pawns
-    for (int rank = 0; rank < 8; ++rank)
+    for (int file = 0; file < 8; ++file)
     {
-        char crank = static_cast<char>('A' + rank);
-        set_piece({crank, 2}, {pieceCode::pawn, playerColor::white});
-        set_piece({crank, 7}, {pieceCode::pawn, playerColor::black});
+        char cfile = static_cast<char>('A' + file);
+        set_piece({cfile, 2}, {pieceCode::pawn, playerColor::white});
+        set_piece({cfile, 7}, {pieceCode::pawn, playerColor::black});
     }
 
     // Set up rooks
@@ -174,9 +144,14 @@ void chess::printCurrentGame()
                         std::cout << "\u265B "; // ♛ -> black queen
                         break;
                     case pieceCode::pawn:
-                        std::cout << "\u265F "; // ♟ -> black pawn
-                        // std::cout << "\u265F\uFE0E "; // ♟️ -> black pawn (with text variation selector to avoid emoji style)
-                        // std::cout << "\u25CF "; // black circle -> plan B ...
+                        if (replace_black_pawn)
+                        {
+                            std::cout << "\u25CF "; // black circle to avoid emoji style pawn
+                        }
+                        else
+                        {
+                            std::cout << "\u265F "; // ♟ -> black pawn
+                        }
                         break;
                     default:
                         std::cout << "\u2610 "; // ☐
