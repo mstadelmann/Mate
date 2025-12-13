@@ -39,11 +39,14 @@ int main(int argc, char **argv)
 
 void game_loop(chess &game)
 {
-    game.printCurrentGame();
-    auto selection = GameMenu();
+    bool showMenu = true;
 
     while (true)
     {
+        game.printCurrentGame();
+        auto selection = GameMenu(showMenu);
+        showMenu = false;
+
         switch (selection)
         {
         case GameMenuChoice::ManualMove:
@@ -74,7 +77,7 @@ void game_loop(chess &game)
             cout << "Writing to database..." << endl;
             break;
         case GameMenuChoice::Help:
-            cout << "Showing help menu..." << endl;
+            showMenu = true;
             break;
         case GameMenuChoice::Quit:
             cout << "Quitting game and returning to main menu..." << endl;
@@ -84,7 +87,7 @@ void game_loop(chess &game)
             break;
         }
 
-        game.printCurrentGame();
-        auto selection = GameMenu(false);
+        // game.printCurrentGame();
+        // auto selection = GameMenu(false);
     }
 }
