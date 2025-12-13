@@ -46,21 +46,14 @@ void game_loop(chess &game)
     {
         switch (selection)
         {
-        case GameMenuChoice::ShowCount:
-            cout << "Showing count..." << endl;
-            break;
-        case GameMenuChoice::WriteDB:
-            cout << "Writing to database..." << endl;
-            break;
         case GameMenuChoice::ManualMove:
-            cout << "Entering manual move..." << endl;
             game.manualMove();
             break;
         case GameMenuChoice::SmartMove:
             cout << "Running smart move..." << endl;
             break;
         case GameMenuChoice::RandomMove:
-            cout << "Running random move..." << endl;
+            game.randomMove();
             break;
         case GameMenuChoice::Undo:
             cout << "Undoing last move..." << endl;
@@ -68,14 +61,20 @@ void game_loop(chess &game)
         case GameMenuChoice::Redo:
             cout << "Redoing last move..." << endl;
             break;
-        case GameMenuChoice::Help:
-            cout << "Showing help menu..." << endl;
+        case GameMenuChoice::ShowCount:
+            cout << "Showing count..." << endl;
             break;
         case GameMenuChoice::ListAllMoves:
             cout << "Listing all legal moves..." << endl;
             break;
         case GameMenuChoice::ShowHistory:
             cout << "Listing game history..." << endl;
+            break;
+        case GameMenuChoice::WriteDB:
+            cout << "Writing to database..." << endl;
+            break;
+        case GameMenuChoice::Help:
+            cout << "Showing help menu..." << endl;
             break;
         case GameMenuChoice::Quit:
             cout << "Quitting game and returning to main menu..." << endl;

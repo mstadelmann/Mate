@@ -1,5 +1,6 @@
 #include "chess.h"
 #include <iostream>
+#include <random>
 
 chess::chess()
 {
@@ -258,6 +259,24 @@ boardCoordinateType chess::chessCoordinatesFromString(const std::string &coordSt
     }
 
     return {file, rank};
+}
+
+bool chess::randomMove()
+{
+    vector<chessMotionType> legalMoves = findAllLegalMoves();
+    if (legalMoves.empty())
+    {
+        std::cout << "No legal moves available." << std::endl;
+        return false;
+    }
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<std::size_t> dist(0, legalMoves.size() - 1);
+
+    chessMotionType moveToMake = legalMoves[dist(gen)];
+    executeMove(moveToMake);
+    std::swap(current_player, other_player);
+    return true;
 }
 
 bool chess::manualMove()

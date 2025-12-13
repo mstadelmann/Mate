@@ -121,6 +121,7 @@ public:
     bool check_move_legal(chessMotionType);
     void executeMove(chessMotionType);
     bool manualMove();
+    bool randomMove();
     boardCoordinateType chessCoordinatesFromString(const string &);
     bool currentlyChecked();
     boardCoordinateType findKing();
