@@ -112,6 +112,11 @@ public:
     vector<chessMotionType> findAllLegalMoves();
 
     vector<chessMotionType> findLegalPawnMoves(boardCoordinateType);
+    vector<chessMotionType> findLegalRookMoves(boardCoordinateType);
+    vector<chessMotionType> findLegalKnightMoves(boardCoordinateType);
+    vector<chessMotionType> findLegalBishopMoves(boardCoordinateType);
+    vector<chessMotionType> findLegalQueenMoves(boardCoordinateType);
+    vector<chessMotionType> findLegalKingMoves(boardCoordinateType);
     bool validatePosition(boardCoordinateType);
     bool check_move_legal(chessMotionType);
     void executeMove(chessMotionType);

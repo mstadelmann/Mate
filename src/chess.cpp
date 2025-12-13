@@ -291,28 +291,48 @@ bool chess::manualMove()
 
 vector<chessMotionType> chess::findAllLegalMoves()
 {
-    vector<chessMotionType> legalMoves;
+    vector<chessMotionType> allLegalMoves;
 
     // For each piece of the current player, find its legal moves
     vector<boardPositionType> playerPieces = get_all_pieces_of_color(current_player);
     for (const auto &piecePos : playerPieces)
     {
+        vector<chessMotionType> currentLegalMoves;
         // Depending on the piece type, find its legal moves
         switch (piecePos.piece.piece)
         {
         case pieceCode::pawn:
         {
-            vector<chessMotionType> pawnMoves = findLegalPawnMoves(piecePos.coord);
-            legalMoves.insert(legalMoves.end(), pawnMoves.begin(), pawnMoves.end());
+            currentLegalMoves = findLegalPawnMoves(piecePos.coord);
+            allLegalMoves.insert(allLegalMoves.end(), currentLegalMoves.begin(), currentLegalMoves.end());
             break;
         }
-        // Add cases for other piece types (rook, knight, bishop, queen, king)
+        case pieceCode::rook:
+            currentLegalMoves = findLegalRookMoves(piecePos.coord);
+            allLegalMoves.insert(allLegalMoves.end(), currentLegalMoves.begin(), currentLegalMoves.end());
+            break;
+        case pieceCode::knight:
+            currentLegalMoves = findLegalKnightMoves(piecePos.coord);
+            allLegalMoves.insert(allLegalMoves.end(), currentLegalMoves.begin(), currentLegalMoves.end());
+            break;
+        case pieceCode::bishop:
+            currentLegalMoves = findLegalBishopMoves(piecePos.coord);
+            allLegalMoves.insert(allLegalMoves.end(), currentLegalMoves.begin(), currentLegalMoves.end());
+            break;
+        case pieceCode::queen:
+            currentLegalMoves = findLegalQueenMoves(piecePos.coord);
+            allLegalMoves.insert(allLegalMoves.end(), currentLegalMoves.begin(), currentLegalMoves.end());
+            break;
+        case pieceCode::king:
+            currentLegalMoves = findLegalKingMoves(piecePos.coord);
+            allLegalMoves.insert(allLegalMoves.end(), currentLegalMoves.begin(), currentLegalMoves.end());
+            break;
         default:
             break;
         }
     }
 
-    return legalMoves;
+    return allLegalMoves;
 }
 
 vector<boardPositionType> chess::get_all_pieces_of_color(playerColor color)
@@ -614,6 +634,170 @@ vector<chessMotionType> chess::findLegalPawnMoves(boardCoordinateType from)
             if (targetPiece.piece != pieceCode::empty && targetPiece.color == other_player)
             {
                 chessMotionType move = {query_position(from), query_position(diag), moveType::undefined, moved_by::none, 0};
+                if (check_move_legal(move))
+                    legalMoves.push_back(move);
+            }
+        }
+    }
+
+    return legalMoves;
+}
+
+vector<chessMotionType> chess::findLegalRookMoves(boardCoordinateType from)
+{
+    vector<chessMotionType> legalMoves;
+
+    const std::array<std::pair<int, int>, 4> directions = {{
+        {1, 0},  // right
+        {-1, 0}, // left
+        {0, 1},  // up
+        {0, -1}  // down
+    }};
+
+    for (const auto &d : directions)
+    {
+        int df = d.first;
+        int dr = d.second;
+        boardCoordinateType cur = from;
+
+        while (true)
+        {
+            cur.file = static_cast<char>(cur.file + df);
+            cur.rank = cur.rank + dr;
+
+            if (!validatePosition(cur))
+                break;
+
+            pieceType p = query_position(cur).piece;
+            if (p.piece == pieceCode::empty)
+            {
+                chessMotionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
+                if (check_move_legal(move))
+                    legalMoves.push_back(move);
+            }
+            else
+            {
+                if (p.color == other_player)
+                {
+                    chessMotionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
+                    if (check_move_legal(move))
+                        legalMoves.push_back(move);
+                }
+                break; // blocked by any piece
+            }
+        }
+    }
+
+    return legalMoves;
+}
+
+vector<chessMotionType> chess::findLegalKnightMoves(boardCoordinateType from)
+{
+    vector<chessMotionType> legalMoves;
+
+    const std::array<std::pair<int, int>, 8> knightOffsets = {{{1, 2}, {2, 1}, {-1, 2}, {-2, 1}, {1, -2}, {2, -1}, {-1, -2}, {-2, -1}}};
+
+    for (const auto &o : knightOffsets)
+    {
+        boardCoordinateType to = {
+            static_cast<char>(from.file + o.first),
+            from.rank + o.second};
+
+        if (validatePosition(to))
+        {
+            pieceType targetPiece = query_position(to).piece;
+            if (targetPiece.piece == pieceCode::empty || targetPiece.color == other_player)
+            {
+                chessMotionType move = {query_position(from), query_position(to), moveType::undefined, moved_by::none, 0};
+                if (check_move_legal(move))
+                    legalMoves.push_back(move);
+            }
+        }
+    }
+
+    return legalMoves;
+}
+
+vector<chessMotionType> chess::findLegalBishopMoves(boardCoordinateType from)
+{
+    vector<chessMotionType> legalMoves;
+
+    const std::array<std::pair<int, int>, 4> directions = {{
+        {1, 1},  // up-right
+        {-1, 1}, // up-left
+        {1, -1}, // down-right
+        {-1, -1} // down-left
+    }};
+
+    for (const auto &d : directions)
+    {
+        int df = d.first;
+        int dr = d.second;
+        boardCoordinateType cur = from;
+
+        while (true)
+        {
+            cur.file = static_cast<char>(cur.file + df);
+            cur.rank = cur.rank + dr;
+
+            if (!validatePosition(cur))
+                break;
+
+            pieceType p = query_position(cur).piece;
+            if (p.piece == pieceCode::empty)
+            {
+                chessMotionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
+                if (check_move_legal(move))
+                    legalMoves.push_back(move);
+            }
+            else
+            {
+                if (p.color == other_player)
+                {
+                    chessMotionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
+                    if (check_move_legal(move))
+                        legalMoves.push_back(move);
+                }
+                break; // blocked by any piece
+            }
+        }
+    }
+
+    return legalMoves;
+}
+
+vector<chessMotionType> chess::findLegalQueenMoves(boardCoordinateType from)
+{
+    vector<chessMotionType> legalMoves;
+
+    // Combine rook and bishop moves
+    vector<chessMotionType> rookMoves = findLegalRookMoves(from);
+    vector<chessMotionType> bishopMoves = findLegalBishopMoves(from);
+
+    legalMoves.insert(legalMoves.end(), rookMoves.begin(), rookMoves.end());
+    legalMoves.insert(legalMoves.end(), bishopMoves.begin(), bishopMoves.end());
+
+    return legalMoves;
+}
+
+vector<chessMotionType> chess::findLegalKingMoves(boardCoordinateType from)
+{
+    vector<chessMotionType> legalMoves;
+
+    const std::array<std::pair<int, int>, 8> kingOffsets = {{{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {1, -1}, {-1, -1}}};
+
+    for (const auto &o : kingOffsets)
+    {
+        boardCoordinateType to = {
+            static_cast<char>(from.file + o.first),
+            from.rank + o.second};
+
+        if (validatePosition(to))
+        {
+            pieceType targetPiece = query_position(to).piece;
+            if (targetPiece.piece == pieceCode::empty || targetPiece.color == other_player)
+            {
+                chessMotionType move = {query_position(from), query_position(to), moveType::undefined, moved_by::none, 0};
                 if (check_move_legal(move))
                     legalMoves.push_back(move);
             }
