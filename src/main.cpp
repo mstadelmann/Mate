@@ -65,7 +65,7 @@ void game_loop(chess &game)
             cout << "Redoing last move..." << endl;
             break;
         case GameMenuChoice::ShowCount:
-            cout << "Showing count..." << endl;
+            cout << "Board evaluation: " << game.evaluateBoard() << endl;
             break;
         case GameMenuChoice::ListAllMoves:
             game.listLegalMoves();

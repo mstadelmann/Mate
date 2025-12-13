@@ -838,3 +838,75 @@ string chess::pieceTypeToChar(pieceType pc)
         return "";
     }
 }
+
+int chess::getPieceValue(pieceCode piece)
+{
+
+    switch (piece)
+    {
+    case pieceCode::pawn:
+        return pawnValue;
+    case pieceCode::rook:
+        return rookValue;
+    case pieceCode::knight:
+        return knightValue;
+    case pieceCode::bishop:
+        return bishopValue;
+    case pieceCode::king:
+        return kingValue;
+    case pieceCode::queen:
+        return queenValue;
+    default:
+        return 0;
+    }
+}
+
+double chess::getPositionEvalFactor(boardPositionType pos)
+{
+    double tempVal = 0;
+    int file_idx = pos.coord.file - 'A';
+    int rank_idx = pos.coord.rank - 1;
+
+    switch (pos.piece.piece)
+    {
+    case pieceCode::pawn:
+        tempVal = (pos.piece.color == playerColor::white ? pawnEvalWhite[rank_idx][file_idx] : pawnEvalBlack[rank_idx][file_idx]);
+        break;
+    case pieceCode::rook:
+        tempVal = (pos.piece.color == playerColor::white ? rookEvalWhite[rank_idx][file_idx] : rookEvalBlack[rank_idx][file_idx]);
+        break;
+    case pieceCode::knight:
+        tempVal = (pos.piece.color == playerColor::white ? knightEval[rank_idx][file_idx] : knightEval[rank_idx][file_idx]);
+        break;
+    case pieceCode::bishop:
+        tempVal = (pos.piece.color == playerColor::white ? bishopEvalWhite[rank_idx][file_idx] : bishopEvalBlack[rank_idx][file_idx]);
+        break;
+    case pieceCode::king:
+        tempVal = (pos.piece.color == playerColor::white ? kingEvalWhite[rank_idx][file_idx] : kingEvalBlack[rank_idx][file_idx]);
+        break;
+    case pieceCode::queen:
+        tempVal = (pos.piece.color == playerColor::white ? evalQueen[rank_idx][file_idx] : evalQueen[rank_idx][file_idx]);
+        break;
+    default:
+        tempVal = 0;
+    }
+    return tempVal;
+}
+
+double chess::evaluateBoard(void)
+{
+    double gameCount = 0.0;
+
+    for (int file = 0; file < 8; file++)
+    {
+        for (int rank = 0; rank < 8; rank++)
+        {
+            boardPositionType currentPosition = query_position({static_cast<char>('A' + file), rank + 1});
+            int pol = currentPosition.piece.color == playerColor::white ? 1 : -1;
+            double pieceVal = pol * (double)getPieceValue(currentPosition.piece.piece);
+            double posFac = getPositionEvalFactor(currentPosition);
+            gameCount = gameCount + position_gamma * posFac * pieceVal + (1 - position_gamma) * pieceVal;
+        }
+    }
+    return gameCount;
+}

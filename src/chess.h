@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <array>
+#include "config.h"
 
 using std::array;
 using std::string;
@@ -128,6 +129,9 @@ public:
     void reverseMove();
     void listLegalMoves();
     string pieceTypeToChar(pieceType);
+    int getPieceValue(pieceCode);
+    double getPositionEvalFactor(boardPositionType);
+    double evaluateBoard(void);
 };
 
 #endif /* CHESS_H */
