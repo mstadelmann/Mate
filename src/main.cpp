@@ -39,12 +39,11 @@ int main(int argc, char **argv)
 
 void game_loop(chess &game)
 {
+    game.printCurrentGame();
+    auto selection = GameMenu();
 
     while (true)
     {
-        game.printCurrentGame();
-
-        auto selection = GameMenu();
         switch (selection)
         {
         case GameMenuChoice::ShowCount:
@@ -85,5 +84,8 @@ void game_loop(chess &game)
             cout << "Invalid selection; feature not implemented." << endl;
             break;
         }
+
+        game.printCurrentGame();
+        auto selection = GameMenu(false);
     }
 }

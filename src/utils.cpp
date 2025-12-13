@@ -27,17 +27,24 @@ namespace
         const char *label;
     };
 
-    int showMenuAndGetIndex(const char *title, size_t count, const char *const *labels)
+    int showMenuAndGetIndex(const char *title, size_t count, const char *const *labels, bool print_menu = true)
     {
         int choice = -1;
         while (true)
         {
-            cout << title << endl;
-            for (size_t i = 0; i < count; ++i)
+            if (print_menu)
             {
-                cout << (i + 1) << ". " << labels[i] << endl;
+                cout << title << endl;
+                for (size_t i = 0; i < count; ++i)
+                {
+                    cout << (i + 1) << ". " << labels[i] << endl;
+                }
+                cout << "Enter choice (1-" << count << "): " << endl;
             }
-            cout << "Enter choice (1-" << count << "): " << endl;
+            else
+            {
+                cout << ">MATE ";
+            }
 
             if (!(std::cin >> choice) || choice < 1 || choice > static_cast<int>(count))
             {
@@ -52,7 +59,7 @@ namespace
     }
 } // namespace
 
-MainMenuChoice MainMenu(void)
+MainMenuChoice MainMenu(bool print_menu)
 {
 #define MAKE_ITEM(name, label) MenuItemMain{MainMenuChoice::name, label},
     static const std::vector<MenuItemMain> kMainMenuItems = {MAIN_MENU_ITEMS(MAKE_ITEM)};
@@ -63,11 +70,11 @@ MainMenuChoice MainMenu(void)
     for (const auto &it : kMainMenuItems)
         labels.push_back(it.label);
 
-    int idx = showMenuAndGetIndex("Main Menu:", kMainMenuItems.size(), labels.data());
+    int idx = showMenuAndGetIndex("Main Menu:", kMainMenuItems.size(), labels.data(), print_menu);
     return kMainMenuItems[static_cast<size_t>(idx)].choice;
 }
 
-GameMenuChoice GameMenu(void)
+GameMenuChoice GameMenu(bool print_menu)
 {
 #define MAKE_ITEM(name, label) MenuItemGame{GameMenuChoice::name, label},
     static const std::vector<MenuItemGame> kGameMenuItems = {GAME_MENU_ITEMS(MAKE_ITEM)};
@@ -78,6 +85,6 @@ GameMenuChoice GameMenu(void)
     for (const auto &it : kGameMenuItems)
         labels.push_back(it.label);
 
-    int idx = showMenuAndGetIndex("Game Menu:", kGameMenuItems.size(), labels.data());
+    int idx = showMenuAndGetIndex("Game Menu:", kGameMenuItems.size(), labels.data(), print_menu);
     return kGameMenuItems[static_cast<size_t>(idx)].choice;
 }

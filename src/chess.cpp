@@ -3,8 +3,6 @@
 
 chess::chess()
 {
-    std::cout << "Initializing chess game..." << std::endl;
-
     // default values
     replace_black_pawn = true;
 
@@ -138,8 +136,6 @@ std::string chess::current_player_string() const
 void chess::printCurrentGame()
 {
 
-    std::cout << "Print current game:\n";
-    std::cout << "Current player = " << current_player_string() << std::endl;
     // if (gameHistory.size() > 0)
     // {
     //     cout << "Last moved piece = " << gameHistory.back().startPiece
@@ -230,10 +226,20 @@ void chess::printCurrentGame()
             }
         }
 
-        std::cout << "| " << rank + 1 << "\n";
+        // std::cout << "| " << rank + 1 << "\n";
+        std::cout << "| " << rank + 1;
+
+        if (rank == 7)
+        {
+            std::cout << "     Current Player: " << current_player_string() << "\n";
+        }
+        else
+        {
+            std::cout << "\n";
+        }
     }
     std::cout << "   ---------------------------------";
-    std::cout << "\n     A   B   C   D   E   F   G   H  \n\n\n\n\n\n";
+    std::cout << "\n     A   B   C   D   E   F   G   H  \n\n\n";
 }
 
 boardCoordinateType chess::chessCoordinatesFromString(const std::string &coordStr)

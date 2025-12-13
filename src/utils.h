@@ -33,7 +33,7 @@ enum class MainMenuChoice
 #undef ENUM_ITEM
 };
 
-MainMenuChoice MainMenu(void);
+MainMenuChoice MainMenu(bool print_menu = true);
 
 #define GAME_MENU_ITEMS(X)                  \
     X(ManualMove, "Enter Manual Move")      \
@@ -55,6 +55,6 @@ enum class GameMenuChoice
 #undef ENUM_ITEM
 };
 
-GameMenuChoice GameMenu(void);
+GameMenuChoice GameMenu(bool print_menu = true);
 
 #endif /* UTILS_H */
