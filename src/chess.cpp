@@ -136,17 +136,6 @@ std::string chess::current_player_string() const
 
 void chess::printCurrentGame()
 {
-
-    // if (gameHistory.size() > 0)
-    // {
-    //     cout << "Last moved piece = " << gameHistory.back().startPiece
-    //          << gameHistory.back().startPiceCol << ", "
-    //          << indicesToChessCoordinates(gameHistory.back().startpos)
-    //          << " to "
-    //          << indicesToChessCoordinates(gameHistory.back().endpos)
-    //          << endl;
-    // }
-
     std::cout << "\n     A   B   C   D   E   F   G   H  \n";
 
     for (int rank = 7; rank >= 0; rank--)
@@ -156,80 +145,15 @@ void chess::printCurrentGame()
         for (int file = 0; file < 8; file++)
         {
             std::cout << "| ";
-            if (chessboard.at(file).at(rank).piece != pieceCode::empty)
-            {
-
-                if (chessboard.at(file).at(rank).color == playerColor::black)
-                {
-                    switch (chessboard.at(file).at(rank).piece)
-                    {
-                    case pieceCode::rook:
-                        std::cout << "\u265C "; // ♜ -> black rook
-                        break;
-                    case pieceCode::bishop:
-                        std::cout << "\u265D "; // ♝ -> black bishop
-                        break;
-                    case pieceCode::knight:
-                        std::cout << "\u265E "; // ♞ -> black knight
-                        break;
-                    case pieceCode::king:
-                        std::cout << "\u265A "; // ♚ -> black king
-                        break;
-                    case pieceCode::queen:
-                        std::cout << "\u265B "; // ♛ -> black queen
-                        break;
-                    case pieceCode::pawn:
-                        if (replace_black_pawn)
-                        {
-                            std::cout << "\u25CF "; // black circle to avoid emoji style pawn
-                        }
-                        else
-                        {
-                            std::cout << "\u265F "; // ♟ -> black pawn
-                        }
-                        break;
-                    default:
-                        std::cout << "\u2610 "; // ☐
-                        break;
-                    };
-                }
-                else
-                {
-                    switch (chessboard.at(file).at(rank).piece)
-                    {
-                    case pieceCode::rook:
-                        std::cout << "\u2656 "; // ♖ -> white rook
-                        break;
-                    case pieceCode::bishop:
-                        std::cout << "\u2657 "; // ♗ -> white bishop
-                        break;
-                    case pieceCode::knight:
-                        std::cout << "\u2658 "; // ♘ -> white knight
-                        break;
-                    case pieceCode::king:
-                        std::cout << "\u2654 "; // ♔ -> white king
-                        break;
-                    case pieceCode::queen:
-                        std::cout << "\u2655 "; // ♕ -> white queen
-                        break;
-                    case pieceCode::pawn:
-                        std::cout << "\u2659 "; // ♙ -> white pawn
-                        break;
-                    default:
-                        std::cout << "\u2610 "; // ☐
-                        break;
-                    };
-                }
-            }
+            const pieceType pc = chessboard.at(file).at(rank);
+            const std::string ch = pieceTypeToChar(pc);
+            if (!ch.empty())
+                std::cout << ch << " ";
             else
-            {
                 std::cout << "  ";
-            }
         }
 
-        // std::cout << "| " << rank + 1 << "\n";
         std::cout << "| " << rank + 1;
-
         if (rank == 7)
         {
             std::cout << "     Current Player: " << current_player_string() << "\n";
@@ -239,6 +163,7 @@ void chess::printCurrentGame()
             std::cout << "\n";
         }
     }
+
     std::cout << "   ---------------------------------";
     std::cout << "\n     A   B   C   D   E   F   G   H  \n\n\n";
 }
