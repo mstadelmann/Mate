@@ -210,29 +210,36 @@ bool chess::manualMove()
     std::cout << "Enter move (e.g. E2 E4): " << std::flush;
     std::cin >> startField >> endField;
 
-    boardCoordinateType startCoord = chessCoordinatesFromString(startField);
-    boardCoordinateType endCoord = chessCoordinatesFromString(endField);
-
-    boardPositionType startPos = query_position(startCoord);
-    boardPositionType endPos = query_position(endCoord);
-
-    chessMotionType moveToMake = {startPos, endPos, moveType::undefined, moved_by::human, 0};
-
-    vector<chessMotionType> legalMoves = findAllLegalMoves();
-
-    for (const auto &legalMove : legalMoves)
+    try
     {
-        if (legalMove.start_position.coord.file == moveToMake.start_position.coord.file &&
-            legalMove.start_position.coord.rank == moveToMake.start_position.coord.rank &&
-            legalMove.dest_position.coord.file == moveToMake.dest_position.coord.file &&
-            legalMove.dest_position.coord.rank == moveToMake.dest_position.coord.rank)
+        boardCoordinateType startCoord = chessCoordinatesFromString(startField);
+        boardCoordinateType endCoord = chessCoordinatesFromString(endField);
+
+        boardPositionType startPos = query_position(startCoord);
+        boardPositionType endPos = query_position(endCoord);
+
+        chessMotionType moveToMake = {startPos, endPos, moveType::undefined, moved_by::human, 0};
+
+        vector<chessMotionType> legalMoves = findAllLegalMoves();
+
+        for (const auto &legalMove : legalMoves)
         {
-            moveToMake.type_of_move = legalMove.type_of_move;
-            executeMove(moveToMake);
-            // Switch current player
-            std::swap(current_player, other_player);
-            return true;
+            if (legalMove.start_position.coord.file == moveToMake.start_position.coord.file &&
+                legalMove.start_position.coord.rank == moveToMake.start_position.coord.rank &&
+                legalMove.dest_position.coord.file == moveToMake.dest_position.coord.file &&
+                legalMove.dest_position.coord.rank == moveToMake.dest_position.coord.rank)
+            {
+                moveToMake.type_of_move = legalMove.type_of_move;
+                executeMove(moveToMake);
+                std::swap(current_player, other_player);
+                return true;
+            }
         }
+    }
+    catch (const std::exception &e)
+    {
+        std::cout << "Error: " << e.what() << std::endl;
+        return false;
     }
 
     std::cout << "Illegal move." << std::endl;
