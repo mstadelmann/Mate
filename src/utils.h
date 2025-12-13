@@ -36,16 +36,16 @@ enum class MainMenuChoice
 MainMenuChoice MainMenu(void);
 
 #define GAME_MENU_ITEMS(X)                  \
-    X(ShowCount, "Show Count")              \
-    X(WriteDB, "Write DB")                  \
     X(ManualMove, "Enter Manual Move")      \
     X(SmartMove, "Run Smart Move")          \
     X(RandomMove, "Run Random Move")        \
     X(Undo, "Undo Last Move")               \
     X(Redo, "Redo Last Move")               \
-    X(Help, "Show this help menu")          \
+    X(ShowCount, "Show Count")              \
     X(ListAllMoves, "List all legal moves") \
     X(ShowHistory, "List game history")     \
+    X(WriteDB, "Write DB")                  \
+    X(Help, "Show this help menu")          \
     X(Quit, "Quit Game and return to Main Menu")
 
 enum class GameMenuChoice

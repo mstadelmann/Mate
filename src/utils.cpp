@@ -58,7 +58,6 @@ MainMenuChoice MainMenu(void)
     static const std::vector<MenuItemMain> kMainMenuItems = {MAIN_MENU_ITEMS(MAKE_ITEM)};
 #undef MAKE_ITEM
 
-    // Build labels array for helper
     std::vector<const char *> labels;
     labels.reserve(kMainMenuItems.size());
     for (const auto &it : kMainMenuItems)
