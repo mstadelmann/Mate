@@ -126,6 +126,8 @@ public:
     bool currentlyChecked();
     boardCoordinateType findKing();
     void reverseMove();
+    void listLegalMoves();
+    string pieceTypeToChar(pieceType);
 };
 
 #endif /* CHESS_H */

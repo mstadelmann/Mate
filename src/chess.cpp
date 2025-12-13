@@ -843,3 +843,73 @@ bool chess::validatePosition(boardCoordinateType coord)
         return false;
     }
 }
+
+void chess::listLegalMoves()
+{
+    vector<chessMotionType> legalMoves = findAllLegalMoves();
+    std::cout << "Legal moves for " << current_player_string() << ":\n";
+    for (const auto &move : legalMoves)
+    {
+        std::cout << pieceTypeToChar(move.start_position.piece) << " at "
+                  << move.start_position.coord.file << move.start_position.coord.rank
+                  << " to "
+                  << move.dest_position.coord.file << move.dest_position.coord.rank
+                  << "\n";
+    }
+    std::cout << "Total legal moves: " << legalMoves.size() << "\n";
+}
+
+string chess::pieceTypeToChar(pieceType pc)
+{
+    if (pc.color == playerColor::white)
+    {
+        switch (pc.piece)
+        {
+        case pieceCode::king:
+            return "\u2654"; // ♔ -> white king
+        case pieceCode::queen:
+            return "\u2655"; // ♕ -> white queen
+        case pieceCode::rook:
+            return "\u2656"; // ♖ -> white rook
+        case pieceCode::bishop:
+            return "\u2657"; // ♗ -> white bishop
+        case pieceCode::knight:
+            return "\u2658"; // ♘ -> white knight
+        case pieceCode::pawn:
+            return "\u2659"; // ♙ -> white pawn
+        default:
+            return "";
+        }
+    }
+    else if (pc.color == playerColor::black)
+    {
+        switch (pc.piece)
+        {
+        case pieceCode::king:
+            return "\u265A"; // ♚ -> black king
+        case pieceCode::queen:
+            return "\u265B"; // ♛ -> black queen
+        case pieceCode::rook:
+            return "\u265C"; // ♜ -> black rook
+        case pieceCode::bishop:
+            return "\u265D"; // ♝ -> black bishop
+        case pieceCode::knight:
+            return "\u265E"; // ♞ -> black knight
+        case pieceCode::pawn:
+            if (replace_black_pawn)
+            {
+                return "\u25CF"; // black circle to avoid emoji style pawn
+            }
+            else
+            {
+                return "\u265F"; // ♟ -> black pawn
+            }
+        default:
+            return "";
+        }
+    }
+    else
+    {
+        return "";
+    }
+}
