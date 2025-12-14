@@ -194,4 +194,13 @@ const int kingValue = 900;
 
 const double position_gamma = 1.0; // 0: no position factor, 1: full position factor
 
+const int earlyMattVal = 30000;
+const int finalMattVal = 20000;
+const int finalPattVal = 10000;
+
+const int maxValStart = -100000;
+const int minValStart = 100000;
+
+const int minMaxDepth = 2;
+
 #endif /* CONF_H */

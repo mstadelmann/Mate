@@ -99,6 +99,7 @@ private:
     bool replace_black_pawn;
     vector<chessMotionType> gameHistory;
     vector<chessboardType> gamePositionHistory;
+    int RecFuncCounter;
 
 public:
     chess();
@@ -132,6 +133,10 @@ public:
     int getPieceValue(pieceCode);
     double getPositionEvalFactor(boardPositionType);
     double evaluateBoard(void);
+    chessMotionType smartMaxR(int depth);
+    chessMotionType smartMinR(int depth);
+    chessMotionType getHistoryLast();
+    void performSmartMove();
 };
 
 #endif /* CHESS_H */

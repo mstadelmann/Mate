@@ -6,6 +6,7 @@ chess::chess()
 {
     // default values
     replace_black_pawn = true;
+    RecFuncCounter = 0;
 
     // Initialize players
     current_player = playerColor::white;
@@ -157,6 +158,14 @@ void chess::printCurrentGame()
         if (rank == 7)
         {
             std::cout << "     Current Player: " << current_player_string() << "\n";
+        }
+        else if (rank == 6)
+        {
+            std::cout << "     Moves played: " << gameHistory.size() << "\n";
+        }
+        else if (rank == 5)
+        {
+            std::cout << "     Board evaluation: " << evaluateBoard() << "\n";
         }
         else
         {
@@ -916,4 +925,274 @@ double chess::evaluateBoard(void)
         }
     }
     return gameCount;
+}
+
+chessMotionType chess::smartMaxR(int depth)
+{
+    chessMotionType bestMove;
+    vector<chessMotionType> bestMoveList;
+    chessMotionType currentMove;
+
+    if (depth == 0)
+    {
+        RecFuncCounter++;
+
+        vector<chessMotionType> legalMovesList = findAllLegalMoves();
+        // debugMessage("Depth = " + to_string(depth) + " nb legal moves opponent: " + to_string(legalMovesList.size()), 1);
+
+        chessMotionType temp;
+
+        if (legalMovesList.size() < 1)
+        {
+            if (currentlyChecked())
+            {
+                temp.board_evaluation = -finalMattVal;
+            }
+            else
+            {
+                temp.board_evaluation = -finalPattVal;
+            }
+        }
+        else
+        {
+            temp.board_evaluation = evaluateBoard();
+        }
+        return temp;
+    }
+
+    int maxVal = maxValStart;
+    // debugMessage("find legal moves!!", 1);
+
+    vector<chessMotionType> legalMovesList = findAllLegalMoves();
+
+    if ((legalMovesList.size() < 1) && (currentlyChecked())) // checkmate before depth 0 reached
+    {
+        // debugMessage("CHECKMATE before depth 0 reached", 1);
+        chessMotionType temp = getHistoryLast();
+
+        temp.board_evaluation = -earlyMattVal;
+        bestMove = temp;
+    }
+    else
+    {
+        for (uint i = 0; i < legalMovesList.size(); i++)
+        {
+
+            // debugMessage("******************************** \ndepth: " + to_string(depth), 1);
+
+            // Make the move, but undo before exiting loop
+            executeMove(legalMovesList[i]);
+
+            // if (debugLevel > 0)
+            // {
+            //     currentGame.printCurrentGame();
+            // }
+
+            std::swap(current_player, other_player);
+            currentMove = smartMinR(depth - 1);
+            // Undo previous move
+            reverseMove();
+            std::swap(current_player, other_player);
+
+            // if (debugLevel > 0)
+            // {
+            //     currentGame.printCurrentGame();
+            // }
+
+            if (currentMove.board_evaluation == maxVal)
+            { // found equally good move, add to list for random pick
+
+                bestMove.start_position = legalMovesList[i].start_position;
+                bestMove.dest_position = legalMovesList[i].dest_position;
+                bestMove.board_evaluation = maxVal;
+
+                bestMoveList.push_back(bestMove);
+            }
+            else if (currentMove.board_evaluation > maxVal)
+            { // found better move, reset list and add new move
+
+                // debugMessage("Found new MAX !! " + to_string(currentMove.boardValue) + " before: " + to_string(maxVal), 1);
+
+                maxVal = currentMove.board_evaluation;
+
+                bestMove.start_position = legalMovesList[i].start_position;
+                bestMove.dest_position = legalMovesList[i].dest_position;
+                bestMove.board_evaluation = maxVal;
+
+                bestMoveList.clear();
+                bestMoveList.push_back(bestMove);
+
+                if ((bestMove.board_evaluation == -earlyMattVal) || (bestMove.board_evaluation == -finalMattVal))
+                {
+                    break;
+                }
+            }
+            else
+            {
+
+                // debugMessage("no new MAX, current value = " + to_string(maxVal) + " current Depth: " + to_string(depth), 1);
+            }
+        }
+
+        if (bestMoveList.size() > 1)
+        {
+            srand(time(0)); // define random piece of list
+            int rmdIdx = (rand() % bestMoveList.size());
+            bestMove = bestMoveList[rmdIdx];
+        }
+        else
+        {
+            bestMove = bestMoveList.back();
+        }
+    }
+    return bestMove;
+}
+
+chessMotionType chess::smartMinR(int depth)
+{
+    chessMotionType bestMove;
+    vector<chessMotionType> bestMoveList;
+    chessMotionType currentMove;
+
+    if (depth == 0)
+    {
+        RecFuncCounter++;
+
+        vector<chessMotionType> legalMovesList = findAllLegalMoves();
+
+        // debugMessage("Depth = " + to_string(depth) + " nb legal moves opponent: " + to_string(legalMovesList.size()), 1);
+
+        chessMotionType temp;
+
+        if (legalMovesList.size() < 1)
+        {
+            if (currentlyChecked())
+            {
+                temp.board_evaluation = finalMattVal; // MATT
+            }
+            else
+            {
+                temp.board_evaluation = finalPattVal; // PATT
+            }
+        }
+        else
+        {
+            temp.board_evaluation = evaluateBoard();
+        }
+        return temp;
+    }
+
+    int minVal = minValStart;
+
+    // debugMessage("find legal moves!!", 1);
+    vector<chessMotionType> legalMovesList = findAllLegalMoves();
+
+    if ((legalMovesList.size() < 1) && (currentlyChecked())) // checkmate before depth 0 reached
+    {
+
+        // debugMessage("CHECKMATE before depth 0 reached", 1);
+        chessMotionType temp = getHistoryLast();
+
+        temp.board_evaluation = earlyMattVal;
+
+        bestMove = temp;
+    }
+    else
+    {
+        for (uint i = 0; i < legalMovesList.size(); i++)
+        {
+
+            // debugMessage("********************************\ndepth: " + to_string(depth), 1);
+
+            // Make the move, but undo before exiting loop
+            executeMove(legalMovesList[i]);
+
+            // if (debugLevel > 0)
+            // {
+            //     currentGame.printCurrentGame();
+            // }
+            std::swap(current_player, other_player);
+            currentMove = smartMaxR(depth - 1);
+            // Undo previous move
+            reverseMove();
+            std::swap(current_player, other_player);
+
+            // if (debugLevel > 0)
+            // {
+            //     currentGame.printCurrentGame();
+            // }
+
+            //**
+            if (currentMove.board_evaluation == minVal)
+            { // found equally good move, add to list for random pick
+
+                bestMove.start_position = legalMovesList[i].start_position;
+                bestMove.dest_position = legalMovesList[i].dest_position;
+                bestMove.board_evaluation = minVal;
+
+                bestMoveList.push_back(bestMove);
+            }
+            else if (currentMove.board_evaluation < minVal)
+            { // found better move, reset list and add new move
+
+                // debugMessage("Found new MIN !! " + to_string(currentMove.boardValue) + " before: " + to_string(minVal), 1);
+
+                minVal = currentMove.board_evaluation;
+
+                bestMove.start_position = legalMovesList[i].start_position;
+                bestMove.dest_position = legalMovesList[i].dest_position;
+                bestMove.board_evaluation = minVal;
+
+                bestMoveList.clear();
+                bestMoveList.push_back(bestMove);
+
+                if ((bestMove.board_evaluation == earlyMattVal) || (bestMove.board_evaluation == finalMattVal))
+                {
+                    break;
+                }
+            }
+            else
+            {
+
+                // debugMessage("no new MIN, current value = " + to_string(minVal) + " current Depth: " + to_string(depth), 1);
+            }
+        }
+        if (bestMoveList.size() > 1)
+        {
+            srand(time(0)); // define random piece of list
+            int rmdIdx = (rand() % bestMoveList.size());
+            bestMove = bestMoveList[rmdIdx];
+        }
+        else
+        {
+            bestMove = bestMoveList.back();
+        }
+    }
+
+    return bestMove;
+}
+
+chessMotionType chess::getHistoryLast()
+{
+    return gameHistory.back();
+}
+
+void chess::performSmartMove()
+{
+    time_t start;
+    time_t end;
+    time(&start);
+
+    RecFuncCounter = 0;
+
+    bool whiteToMove = current_player == playerColor::white;
+
+    chessMotionType currentSmartMove = whiteToMove ? smartMaxR(minMaxDepth) : smartMinR(minMaxDepth);
+
+    executeMove(currentSmartMove);
+    std::swap(current_player, other_player);
+
+    time(&end);
+    std::cout << "#Analyzed moves: " << RecFuncCounter << std::endl;
+    std::cout << "Required time: " << difftime(end, start) << " seconds." << std::endl;
 }

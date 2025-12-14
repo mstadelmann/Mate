@@ -53,7 +53,7 @@ void game_loop(chess &game)
             game.manualMove();
             break;
         case GameMenuChoice::SmartMove:
-            cout << "Running smart move..." << endl;
+            game.performSmartMove();
             break;
         case GameMenuChoice::RandomMove:
             game.randomMove();
@@ -63,9 +63,6 @@ void game_loop(chess &game)
             break;
         case GameMenuChoice::Redo:
             cout << "Redoing last move..." << endl;
-            break;
-        case GameMenuChoice::ShowCount:
-            cout << "Board evaluation: " << game.evaluateBoard() << endl;
             break;
         case GameMenuChoice::ListAllMoves:
             game.listLegalMoves();

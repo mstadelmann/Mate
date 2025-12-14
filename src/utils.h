@@ -41,7 +41,6 @@ MainMenuChoice MainMenu(bool print_menu = true);
     X(RandomMove, "Run Random Move")        \
     X(Undo, "Undo Last Move")               \
     X(Redo, "Redo Last Move")               \
-    X(ShowCount, "Show Count")              \
     X(ListAllMoves, "List all legal moves") \
     X(ShowHistory, "List game history")     \
     X(WriteDB, "Write DB")                  \
