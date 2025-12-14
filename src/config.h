@@ -201,6 +201,6 @@ const int finalPattVal = 10000;
 const int maxValStart = -100000;
 const int minValStart = 100000;
 
-const int minMaxDepth = 2;
+const int minMaxDepth = 3;
 
 #endif /* CONF_H */

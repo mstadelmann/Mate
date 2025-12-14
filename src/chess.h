@@ -100,6 +100,11 @@ private:
     vector<chessMotionType> gameHistory;
     vector<chessboardType> gamePositionHistory;
     int RecFuncCounter;
+    // Helpers for board access
+    inline static int fileIndex(char f) { return f - 'A'; }
+    inline static int rankIndex(int r) { return r - 1; }
+    inline pieceType &at(char file, int rank) { return chessboard[fileIndex(file)][rankIndex(rank)]; }
+    inline const pieceType &at(char file, int rank) const { return chessboard[fileIndex(file)][rankIndex(rank)]; }
 
 public:
     chess();

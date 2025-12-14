@@ -78,7 +78,7 @@ void game_loop(chess &game)
             break;
         case GameMenuChoice::Quit:
             cout << "Quitting game and returning to main menu..." << endl;
-            break;
+            return;
         default:
             cout << "Invalid selection; feature not implemented." << endl;
             break;

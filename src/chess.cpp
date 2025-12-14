@@ -33,12 +33,9 @@ chess::~chess()
 
 void chess::place_piece(boardPositionType position)
 {
-    int rank = position.coord.rank - 1;   // Convert rank to 0-based index
-    int file = position.coord.file - 'A'; // Convert file (A-H) to 0-based index
-
-    if (rank >= 0 && rank < 8 && file >= 0 && file < 8)
+    if (validatePosition(position.coord))
     {
-        chessboard[file][rank] = position.piece;
+        at(position.coord.file, position.coord.rank) = position.piece;
     }
     else
     {
@@ -48,12 +45,9 @@ void chess::place_piece(boardPositionType position)
 
 void chess::place_piece(boardCoordinateType coordinates, pieceType piece)
 {
-    int rank = coordinates.rank - 1;   // Convert rank to 0-based index
-    int file = coordinates.file - 'A'; // Convert file (A-H) to 0-based index
-
-    if (rank >= 0 && rank < 8 && file >= 0 && file < 8)
+    if (validatePosition(coordinates))
     {
-        chessboard[file][rank] = piece;
+        at(coordinates.file, coordinates.rank) = piece;
     }
     else
     {
@@ -63,15 +57,12 @@ void chess::place_piece(boardCoordinateType coordinates, pieceType piece)
 
 boardPositionType chess::query_position(boardCoordinateType coordinates)
 {
-    int rank = coordinates.rank - 1;   // Convert rank to 0-based index
-    int file = coordinates.file - 'A'; // Convert file (A-H) to 0-based index
-
     boardPositionType result;
     result.coord.file = coordinates.file;
     result.coord.rank = coordinates.rank;
-    if (rank >= 0 && rank < 8 && file >= 0 && file < 8)
+    if (validatePosition(coordinates))
     {
-        result.piece = chessboard[file][rank];
+        result.piece = at(coordinates.file, coordinates.rank);
     }
     else
     {
