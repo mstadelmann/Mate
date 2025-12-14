@@ -1,10 +1,16 @@
 #include "chess.h"
 #include "utils.h"
+#include "config.h"
 
 void game_loop(chess &);
 
 int main(int argc, char **argv)
 {
+    init_config_defaults();
+    if (!load_config_from_json())
+    {
+        save_config_to_json();
+    }
 
     printLogo();
     chess game;
@@ -83,8 +89,5 @@ void game_loop(chess &game)
             cout << "Invalid selection; feature not implemented." << endl;
             break;
         }
-
-        // game.printCurrentGame();
-        // auto selection = GameMenu(false);
     }
 }

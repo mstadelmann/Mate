@@ -1,0 +1,288 @@
+#include "config.h"
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <sys/stat.h>
+#include <unistd.h>
+
+// Define variables with defaults
+double pawnEvalWhite[8][8] = {
+    {0, 0, 0, 0, 0, 0, 0, 0},
+    {0.5, 1, 1, -2, -2, 1, 1, 0.5},
+    {0.5, -0.5, -1, 0, 0, -1, -0.5, 0.5},
+    {0, 0, 0, 2, 2, 0, 0, 0},
+    {0.5, 0.5, 1, 2.5, 2.5, 1, 0.5, 0.5},
+    {1, 1, 2, 3, 3, 2, 1, 1},
+    {5, 5, 5, 5, 5, 5, 5, 5},
+    {0, 0, 0, 0, 0, 0, 0, 0}};
+double pawnEvalBlack[8][8] = {
+    {0, 0, 0, 0, 0, 0, 0, 0},
+    {5, 5, 5, 5, 5, 5, 5, 5},
+    {1, 1, 2, 3, 3, 2, 1, 1},
+    {0.5, 0.5, 1, 2.5, 2.5, 1, 0.5, 0.5},
+    {0, 0, 0, 2, 2, 0, 0, 0},
+    {0.5, -0.5, -1, 0, 0, -1, -0.5, 0.5},
+    {0.5, 1, 1, -2, -2, 1, 1, 0.5},
+    {0, 0, 0, 0, 0, 0, 0, 0}};
+double knightEval[8][8] = {
+    {-5, -4, -3, -3, -3, -3, -4, -5},
+    {-4, -2, 0, 0, 0, 0, -2, -4},
+    {-3, 0, 1, 1.5, 1.5, 1, 0, -3},
+    {-3, 0.5, 1.5, 2, 2, 1.5, 0.5, -3},
+    {-3, 0, 1.5, 2, 2, 1.5, 0, -3},
+    {-3, 0.5, 1, 1.5, 1.5, 1, 0.5, -3},
+    {-4, -2, 0, 0.5, 0.5, 0, -2, -4},
+    {-5, -4, -3, -3, -3, -3, -4, -5}};
+double bishopEvalWhite[8][8] = {
+    {-2, -1, -1, -1, -1, -1, -1, -2},
+    {-1, 0.5, 0, 0, 0, 0, 0.5, -1},
+    {-1, 1, 1, 1, 1, 1, 1, -1},
+    {-1, 0, 1, 1, 1, 1, 0, -1},
+    {-1, 0.5, 0.5, 1, 1, 0.5, 0.5, -1},
+    {-1, 0, 0.5, 1, 1, 0.5, 0, -1},
+    {-1, 0, 0, 0, 0, 0, 0, -1},
+    {-2, -1, -1, -1, -1, -1, -1, -2}};
+double bishopEvalBlack[8][8] = {
+    {-2, -1, -1, -1, -1, -1, -1, -2},
+    {-1, 0, 0, 0, 0, 0, 0, -1},
+    {-1, 0, 0.5, 1, 1, 0.5, 0, -1},
+    {-1, 0.5, 0.5, 1, 1, 0.5, 0.5, -1},
+    {-1, 0, 1, 1, 1, 1, 0, -1},
+    {-1, 1, 1, 1, 1, 1, 1, -1},
+    {-1, 0.5, 0, 0, 0, 0, 0.5, -1},
+    {-2, -1, -1, -1, -1, -1, -1, -2}};
+double rookEvalWhite[8][8] = {
+    {0, 0, 0, 0.5, 0.5, 0, 0, 0},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {0.5, 1, 1, 1, 1, 1, 1, 0.5},
+    {0, 0, 0, 0, 0, 0, 0, 0}};
+double rookEvalBlack[8][8] = {
+    {0, 0, 0, 0, 0, 0, 0, 0},
+    {0.5, 1, 1, 1, 1, 1, 1, 0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {-0.5, 0, 0, 0, 0, 0, 0, -0.5},
+    {0, 0, 0, 0.5, 0.5, 0, 0, 0}};
+double evalQueen[8][8] = {
+    {-2, -1, -1, -0.5, -0.5, -1, -1, -2},
+    {-1, 0, 0, 0, 0, 0, 0, -1},
+    {-1, 0, 0.5, 0.5, 0.5, 0.5, 0, -1},
+    {-0.5, 0, 0.5, 0.5, 0.5, 0.5, 0, -0.5},
+    {0, 0, 0.5, 0.5, 0.5, 0.5, 0, -0.5},
+    {-1, 0.5, 0.5, 0.5, 0.5, 0.5, 0, -1},
+    {-1, 0, 0.5, 0, 0, 0, 0, -1},
+    {-2, -1, -1, -0.5, -0.5, -1, -1, -2}};
+double kingEvalWhite[8][8] = {
+    {2, 3, 1, 0, 0, 1, 3, 2},
+    {2, 2, 0, 0, 0, 0, 2, 2},
+    {-1, -2, -2, -2, -2, -2, -2, -1},
+    {-2, -3, -3, -4, -4, -3, -3, -2},
+    {-3, -4, -4, -5, -5, -4, -4, -3},
+    {-3, -4, -4, -5, -5, -4, -4, -3},
+    {-3, -4, -4, -5, -5, -4, -4, -3},
+    {-3, -4, -4, -5, -5, -4, -4, -3}};
+double kingEvalBlack[8][8] = {
+    {-3, -4, -4, -5, -5, -4, -4, -3},
+    {-3, -4, -4, -5, -5, -4, -4, -3},
+    {-3, -4, -4, -5, -5, -4, -4, -3},
+    {-3, -4, -4, -5, -5, -4, -4, -3},
+    {-2, -3, -3, -4, -4, -3, -3, -2},
+    {-1, -2, -2, -2, -2, -2, -2, -1},
+    {2, 2, 0, 0, 0, 0, 2, 2},
+    {2, 3, 1, 0, 0, 1, 3, 2}};
+
+int pawnValue = 10;
+int rookValue = 50;
+int knightValue = 30;
+int bishopValue = 30;
+int queenValue = 90;
+int kingValue = 900;
+double position_gamma = 1.0;
+int earlyMattVal = 30000;
+int finalMattVal = 20000;
+int finalPattVal = 10000;
+int maxValStart = -100000;
+int minValStart = 100000;
+int minMaxDepth = 3;
+
+static std::string getBinaryDir()
+{
+    char buf[4096];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len <= 0)
+        return std::string(".");
+    buf[len] = '\0';
+    std::string path(buf);
+    auto pos = path.find_last_of('/');
+    if (pos == std::string::npos)
+        return std::string(".");
+    return path.substr(0, pos);
+}
+
+static bool fileExists(const std::string &path)
+{
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+}
+
+void init_config_defaults()
+{
+    // Defaults already set above
+}
+
+bool save_config_to_json()
+{
+    std::string path = getBinaryDir() + "/config.json";
+    std::ofstream out(path);
+    if (!out)
+        return false;
+    out << "{\n";
+    out << "  \"pawnValue\": " << pawnValue << ",\n";
+    out << "  \"rookValue\": " << rookValue << ",\n";
+    out << "  \"knightValue\": " << knightValue << ",\n";
+    out << "  \"bishopValue\": " << bishopValue << ",\n";
+    out << "  \"queenValue\": " << queenValue << ",\n";
+    out << "  \"kingValue\": " << kingValue << ",\n";
+    out << "  \"position_gamma\": " << position_gamma << ",\n";
+    out << "  \"earlyMattVal\": " << earlyMattVal << ",\n";
+    out << "  \"finalMattVal\": " << finalMattVal << ",\n";
+    out << "  \"finalPattVal\": " << finalPattVal << ",\n";
+    out << "  \"maxValStart\": " << maxValStart << ",\n";
+    out << "  \"minValStart\": " << minValStart << ",\n";
+    out << "  \"minMaxDepth\": " << minMaxDepth << ",\n";
+    auto writeArray = [&out](const char *name, double a[8][8])
+    {
+        out << "  \"" << name << "\": [\n";
+        for (int r = 0; r < 8; ++r)
+        {
+            out << "    [";
+            for (int c = 0; c < 8; ++c)
+            {
+                out << a[r][c];
+                if (c < 7)
+                    out << ", ";
+            }
+            out << "]" << (r < 7 ? ",\n" : "\n");
+        }
+        out << "  ]";
+    };
+    writeArray("pawnEvalWhite", pawnEvalWhite);
+    out << ",\n";
+    writeArray("pawnEvalBlack", pawnEvalBlack);
+    out << ",\n";
+    writeArray("knightEval", knightEval);
+    out << ",\n";
+    writeArray("bishopEvalWhite", bishopEvalWhite);
+    out << ",\n";
+    writeArray("bishopEvalBlack", bishopEvalBlack);
+    out << ",\n";
+    writeArray("rookEvalWhite", rookEvalWhite);
+    out << ",\n";
+    writeArray("rookEvalBlack", rookEvalBlack);
+    out << ",\n";
+    writeArray("evalQueen", evalQueen);
+    out << ",\n";
+    writeArray("kingEvalWhite", kingEvalWhite);
+    out << ",\n";
+    writeArray("kingEvalBlack", kingEvalBlack);
+    out << "\n";
+    out << "}\n";
+    return true;
+}
+
+static bool parseArray(const std::string &content, const char *name, double a[8][8])
+{
+    std::string key = std::string("\"") + name + "\"";
+    auto pos = content.find(key);
+    if (pos == std::string::npos)
+        return false;
+    pos = content.find('[', pos);
+    if (pos == std::string::npos)
+        return false;
+    int r = 0, c = 0;
+    for (size_t i = pos; i < content.size() && r < 8; ++i)
+    {
+        if (content[i] == '[')
+        {
+            c = 0;
+        }
+        else if ((content[i] >= '0' && content[i] <= '9') || content[i] == '-' || content[i] == '.')
+        {
+            char *endp = nullptr;
+            double val = strtod(&content[i], &endp);
+            a[r][c++] = val;
+            i = endp - &content[0] - 1;
+        }
+        else if (content[i] == ']')
+        {
+            if (c == 8)
+                r++;
+        }
+    }
+    return r == 8;
+}
+
+bool load_config_from_json()
+{
+    std::string path = getBinaryDir() + "/config.json";
+    if (!fileExists(path))
+        return false;
+    std::ifstream in(path);
+    if (!in)
+        return false;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string content = ss.str();
+    auto findNum = [&](const char *key, double &out)
+    {
+        std::string k = std::string("\"") + key + "\"";
+        auto p = content.find(k);
+        if (p == std::string::npos)
+            return false;
+        p = content.find(':', p);
+        if (p == std::string::npos)
+            return false;
+        char *endp = nullptr;
+        out = strtod(content.c_str() + p + 1, &endp);
+        return true;
+    };
+    auto findInt = [&](const char *key, int &out)
+    {
+        double d;
+        if (!findNum(key, d))
+            return false;
+        out = (int)d;
+        return true;
+    };
+    findInt("pawnValue", pawnValue);
+    findInt("rookValue", rookValue);
+    findInt("knightValue", knightValue);
+    findInt("bishopValue", bishopValue);
+    findInt("queenValue", queenValue);
+    findInt("kingValue", kingValue);
+    findNum("position_gamma", position_gamma);
+    findInt("earlyMattVal", earlyMattVal);
+    findInt("finalMattVal", finalMattVal);
+    findInt("finalPattVal", finalPattVal);
+    findInt("maxValStart", maxValStart);
+    findInt("minValStart", minValStart);
+    findInt("minMaxDepth", minMaxDepth);
+
+    parseArray(content, "pawnEvalWhite", pawnEvalWhite);
+    parseArray(content, "pawnEvalBlack", pawnEvalBlack);
+    parseArray(content, "knightEval", knightEval);
+    parseArray(content, "bishopEvalWhite", bishopEvalWhite);
+    parseArray(content, "bishopEvalBlack", bishopEvalBlack);
+    parseArray(content, "rookEvalWhite", rookEvalWhite);
+    parseArray(content, "rookEvalBlack", rookEvalBlack);
+    parseArray(content, "evalQueen", evalQueen);
+    parseArray(content, "kingEvalWhite", kingEvalWhite);
+    parseArray(content, "kingEvalBlack", kingEvalBlack);
+    return true;
+}

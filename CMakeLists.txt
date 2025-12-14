@@ -28,7 +28,7 @@ SET(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
 # The following folder will be included
 include_directories("${PROJECT_SOURCE_DIR}")
 
-add_executable(${PROJECT_NAME} ${PROJECT_SOURCE_DIR}/src/main.cpp ${PROJECT_SOURCE_DIR}/src/database.cpp ${PROJECT_SOURCE_DIR}/src/utils.cpp ${PROJECT_SOURCE_DIR}/src/chess.cpp)
+add_executable(${PROJECT_NAME} ${PROJECT_SOURCE_DIR}/src/main.cpp ${PROJECT_SOURCE_DIR}/src/database.cpp ${PROJECT_SOURCE_DIR}/src/utils.cpp ${PROJECT_SOURCE_DIR}/src/chess.cpp ${PROJECT_SOURCE_DIR}/src/config.cpp)
 
 find_package (SQLite3)
 include_directories(${SQLite3_INCLUDE_DIRS})
