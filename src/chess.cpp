@@ -31,6 +31,30 @@ chess::~chess()
     std::cout << "Destroying chess game..." << std::endl;
 }
 
+bool chess::check_board_valid()
+{
+    // Check for exactly one white king and one black king
+    int white_king_count = 0;
+    int black_king_count = 0;
+
+    for (int file = 0; file < 8; ++file)
+    {
+        for (int rank = 0; rank < 8; ++rank)
+        {
+            const pieceType &pc = chessboard[file][rank];
+            if (pc.piece == pieceCode::king)
+            {
+                if (pc.color == playerColor::white)
+                    white_king_count++;
+                else if (pc.color == playerColor::black)
+                    black_king_count++;
+            }
+        }
+    }
+
+    return (white_king_count == 1) && (black_king_count == 1);
+}
+
 void chess::place_piece(boardPositionType position)
 {
     if (validatePosition(position.coord))
@@ -803,6 +827,21 @@ void chess::listLegalMoves()
     std::cout << "Total legal moves: " << legalMoves.size() << "\n";
 }
 
+void chess::listMoveHistory()
+{
+    std::cout << "Move history:\n";
+    for (size_t i = 0; i < gameHistory.size(); ++i)
+    {
+        const auto &move = gameHistory[i];
+        std::cout << i + 1 << ". "
+                  << pieceTypeToChar(move.start_position.piece) << " from "
+                  << move.start_position.coord.file << move.start_position.coord.rank
+                  << " to "
+                  << move.dest_position.coord.file << move.dest_position.coord.rank
+                  << "\n";
+    }
+}
+
 string chess::pieceTypeToChar(pieceType pc)
 {
     if (pc.color == playerColor::white)
@@ -1214,4 +1253,111 @@ void chess::performSmartMove()
     time(&end);
     std::cout << "#Analyzed moves: " << RecFuncCounter << std::endl;
     std::cout << "Required time: " << difftime(end, start) << " seconds." << std::endl;
+}
+
+void chess::board_editor()
+{
+    std::cout << "\nBoard Editor: place or remove pieces." << std::endl;
+    std::cout << "Commands: PLACE <piece> <color> <coord>, REMOVE <coord>, DEFAULT, BACK" << std::endl;
+    std::cout << "Pieces: K,Q,R,B,N,P  Colors: W,B  Coord: like E2" << std::endl;
+
+    bool done = false;
+    while (!done)
+    {
+        printCurrentGame();
+        std::cout << "> " << std::flush;
+        std::string cmd;
+        if (!(std::cin >> cmd))
+            break;
+        for (auto &c : cmd)
+            c = std::toupper(c);
+
+        if (cmd == "BACK" || cmd == "QUIT")
+        {
+            done = true;
+        }
+        else if (cmd == "DEFAULT")
+        {
+            load_starting_position();
+        }
+        else if (cmd == "PLACE")
+        {
+            std::string pieceStr, colorStr, coordStr;
+            if (!(std::cin >> pieceStr >> colorStr >> coordStr))
+            {
+                std::cout << "Invalid input. Usage: PLACE <piece> <color> <coord>" << std::endl;
+                std::cin.clear();
+                continue;
+            }
+            for (auto &c : pieceStr)
+                c = std::toupper(c);
+            for (auto &c : colorStr)
+                c = std::toupper(c);
+            try
+            {
+                boardCoordinateType coord = chessCoordinatesFromString(coordStr);
+
+                pieceCode pc = pieceCode::empty;
+                if (pieceStr == "K")
+                    pc = pieceCode::king;
+                else if (pieceStr == "Q")
+                    pc = pieceCode::queen;
+                else if (pieceStr == "R")
+                    pc = pieceCode::rook;
+                else if (pieceStr == "B")
+                    pc = pieceCode::bishop;
+                else if (pieceStr == "N")
+                    pc = pieceCode::knight;
+                else if (pieceStr == "P")
+                    pc = pieceCode::pawn;
+                else
+                {
+                    std::cout << "Unknown piece. Use K,Q,R,B,N,P." << std::endl;
+                    continue;
+                }
+
+                playerColor col = playerColor::none;
+                if (colorStr == "W")
+                    col = playerColor::white;
+                else if (colorStr == "B")
+                    col = playerColor::black;
+                else
+                {
+                    std::cout << "Unknown color. Use W or B." << std::endl;
+                    continue;
+                }
+
+                place_piece(coord, {pc, col});
+                std::cout << "Placed " << pieceStr << " " << colorStr << " at " << coordStr << std::endl;
+            }
+            catch (const std::exception &e)
+            {
+                std::cout << "Error: " << e.what() << std::endl;
+            }
+        }
+        else if (cmd == "REMOVE")
+        {
+            std::string coordStr;
+            if (!(std::cin >> coordStr))
+            {
+                std::cout << "Invalid input. Usage: REMOVE <coord>" << std::endl;
+                std::cin.clear();
+                continue;
+            }
+            try
+            {
+                boardCoordinateType coord = chessCoordinatesFromString(coordStr);
+                place_piece(coord, {pieceCode::empty, playerColor::none});
+                std::cout << "Removed piece at " << coordStr << std::endl;
+            }
+            catch (const std::exception &e)
+            {
+                std::cout << "Error: " << e.what() << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "Unknown command. Use PLACE/REMOVE/DEFAULT/BACK." << std::endl;
+        }
+    }
 }

@@ -144,6 +144,9 @@ public:
     chessMotionType smartMinR(int depth, int alpha, int beta);
     chessMotionType getHistoryLast();
     void performSmartMove();
+    void board_editor();
+    void listMoveHistory();
+    bool check_board_valid();
 };
 
 #endif /* CHESS_H */
