@@ -156,6 +156,18 @@ void chess::printCurrentGame()
         }
         else if (rank == 5)
         {
+            string last_move_str = "None";
+            if (!gameHistory.empty())
+            {
+                chessMotionType last_move = gameHistory.back();
+                last_move_str = last_move.start_position.coord.file + std::to_string(last_move.start_position.coord.rank) + " - " +
+                                last_move.dest_position.coord.file + std::to_string(last_move.dest_position.coord.rank);
+            }
+
+            std::cout << "     Last move: " << last_move_str << "\n";
+        }
+        else if (rank == 4)
+        {
             std::cout << "     Board evaluation: " << evaluateBoard() << "\n";
         }
         else
@@ -918,7 +930,7 @@ double chess::evaluateBoard(void)
     return gameCount;
 }
 
-chessMotionType chess::smartMaxR(int depth)
+chessMotionType chess::smartMaxR(int depth, int alpha, int beta)
 {
     chessMotionType bestMove;
     vector<chessMotionType> bestMoveList;
@@ -980,7 +992,7 @@ chessMotionType chess::smartMaxR(int depth)
             // }
 
             std::swap(current_player, other_player);
-            currentMove = smartMinR(depth - 1);
+            currentMove = smartMinR(depth - 1, alpha, beta);
             // Undo previous move
             reverseMove();
             std::swap(current_player, other_player);
@@ -1023,6 +1035,14 @@ chessMotionType chess::smartMaxR(int depth)
 
                 // debugMessage("no new MAX, current value = " + to_string(maxVal) + " current Depth: " + to_string(depth), 1);
             }
+            if (use_AB_pruning)
+            {
+                alpha = std::max(alpha, maxVal);
+                if (beta <= alpha)
+                {
+                    break;
+                }
+            }
         }
 
         if (bestMoveList.size() > 1)
@@ -1039,7 +1059,7 @@ chessMotionType chess::smartMaxR(int depth)
     return bestMove;
 }
 
-chessMotionType chess::smartMinR(int depth)
+chessMotionType chess::smartMinR(int depth, int alpha, int beta)
 {
     chessMotionType bestMove;
     vector<chessMotionType> bestMoveList;
@@ -1103,7 +1123,7 @@ chessMotionType chess::smartMinR(int depth)
             //     currentGame.printCurrentGame();
             // }
             std::swap(current_player, other_player);
-            currentMove = smartMaxR(depth - 1);
+            currentMove = smartMaxR(depth - 1, alpha, beta);
             // Undo previous move
             reverseMove();
             std::swap(current_player, other_player);
@@ -1147,6 +1167,14 @@ chessMotionType chess::smartMinR(int depth)
 
                 // debugMessage("no new MIN, current value = " + to_string(minVal) + " current Depth: " + to_string(depth), 1);
             }
+            if (use_AB_pruning)
+            {
+                beta = std::min(beta, minVal);
+                if (beta >= alpha)
+                {
+                    break;
+                }
+            }
         }
         if (bestMoveList.size() > 1)
         {
@@ -1178,7 +1206,7 @@ void chess::performSmartMove()
 
     bool whiteToMove = current_player == playerColor::white;
 
-    chessMotionType currentSmartMove = whiteToMove ? smartMaxR(minMaxDepth) : smartMinR(minMaxDepth);
+    chessMotionType currentSmartMove = whiteToMove ? smartMaxR(minMaxDepth, maxValStart, minValStart) : smartMinR(minMaxDepth, maxValStart, minValStart);
 
     executeMove(currentSmartMove);
     std::swap(current_player, other_player);

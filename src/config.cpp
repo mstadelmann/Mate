@@ -110,6 +110,7 @@ int finalPattVal = 10000;
 int maxValStart = -100000;
 int minValStart = 100000;
 int minMaxDepth = 3;
+bool use_AB_pruning = true;
 
 static std::string getBinaryDir()
 {
@@ -156,6 +157,7 @@ bool save_config_to_json()
     out << "  \"maxValStart\": " << maxValStart << ",\n";
     out << "  \"minValStart\": " << minValStart << ",\n";
     out << "  \"minMaxDepth\": " << minMaxDepth << ",\n";
+    out << "  \"use_AB_pruning\": " << (use_AB_pruning ? "true" : "false") << ",\n";
     auto writeArray = [&out](const char *name, double a[8][8])
     {
         out << "  \"" << name << "\": [\n";
@@ -260,6 +262,30 @@ bool load_config_from_json()
         out = (int)d;
         return true;
     };
+    auto findBool = [&](const char *key, bool &out)
+    {
+        std::string k = std::string("\"") + key + "\"";
+        auto p = content.find(k);
+        if (p == std::string::npos)
+            return false;
+        p = content.find(':', p);
+        if (p == std::string::npos)
+            return false;
+        auto valStart = content.find_first_not_of(" \t\n", p + 1);
+        if (valStart == std::string::npos)
+            return false;
+        if (content.compare(valStart, 4, "true") == 0)
+        {
+            out = true;
+            return true;
+        }
+        else if (content.compare(valStart, 5, "false") == 0)
+        {
+            out = false;
+            return true;
+        }
+        return false;
+    };
     findInt("pawnValue", pawnValue);
     findInt("rookValue", rookValue);
     findInt("knightValue", knightValue);
@@ -273,6 +299,7 @@ bool load_config_from_json()
     findInt("maxValStart", maxValStart);
     findInt("minValStart", minValStart);
     findInt("minMaxDepth", minMaxDepth);
+    findBool("use_AB_pruning", use_AB_pruning);
 
     parseArray(content, "pawnEvalWhite", pawnEvalWhite);
     parseArray(content, "pawnEvalBlack", pawnEvalBlack);

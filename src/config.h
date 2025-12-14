@@ -212,6 +212,7 @@ extern int maxValStart;
 extern int minValStart;
 
 extern int minMaxDepth;
+extern bool use_AB_pruning;
 
 // Load/save config.json next to the binary
 bool load_config_from_json();
