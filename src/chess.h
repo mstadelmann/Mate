@@ -105,6 +105,8 @@ private:
     inline static int rankIndex(int r) { return r - 1; }
     inline pieceType &at(char file, int rank) { return chessboard[fileIndex(file)][rankIndex(rank)]; }
     inline const pieceType &at(char file, int rank) const { return chessboard[fileIndex(file)][rankIndex(rank)]; }
+    inline pieceType &at(boardCoordinateType c) { return chessboard[fileIndex(c.file)][rankIndex(c.rank)]; }
+    inline const pieceType &at(boardCoordinateType c) const { return chessboard[fileIndex(c.file)][rankIndex(c.rank)]; }
 
 public:
     chess();

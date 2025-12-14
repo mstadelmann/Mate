@@ -35,7 +35,7 @@ void chess::place_piece(boardPositionType position)
 {
     if (validatePosition(position.coord))
     {
-        at(position.coord.file, position.coord.rank) = position.piece;
+        at(position.coord) = position.piece;
     }
     else
     {
@@ -47,7 +47,7 @@ void chess::place_piece(boardCoordinateType coordinates, pieceType piece)
 {
     if (validatePosition(coordinates))
     {
-        at(coordinates.file, coordinates.rank) = piece;
+        at(coordinates) = piece;
     }
     else
     {
@@ -62,7 +62,7 @@ boardPositionType chess::query_position(boardCoordinateType coordinates)
     result.coord.rank = coordinates.rank;
     if (validatePosition(coordinates))
     {
-        result.piece = at(coordinates.file, coordinates.rank);
+        result.piece = at(coordinates);
     }
     else
     {
