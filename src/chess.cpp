@@ -1,4 +1,5 @@
 #include "chess.h"
+#include "utils.h"
 #include <iostream>
 #include <random>
 
@@ -981,7 +982,8 @@ chessMotionType chess::smartMaxR(int depth, int alpha, int beta)
         RecFuncCounter++;
 
         vector<chessMotionType> legalMovesList = findAllLegalMoves();
-        // debugMessage("Depth = " + to_string(depth) + " nb legal moves opponent: " + to_string(legalMovesList.size()), 1);
+
+        // debugMessage("Depth = " + std::to_string(depth) + " nb legal moves opponent: " + std::to_string(legalMovesList.size()));
 
         chessMotionType temp;
 

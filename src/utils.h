@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <time.h>
 #include <limits>
+#include "chess.h"
 
 using std::cout;
 using std::endl;
@@ -55,5 +56,6 @@ enum class GameMenuChoice
 };
 
 GameMenuChoice GameMenu(bool print_menu = true);
+void debugMessage(const std::string &msg);
 
 #endif /* UTILS_H */

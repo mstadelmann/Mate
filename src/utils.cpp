@@ -88,3 +88,11 @@ GameMenuChoice GameMenu(bool print_menu)
     int idx = showMenuAndGetIndex("Game Menu:", kGameMenuItems.size(), labels.data(), print_menu);
     return kGameMenuItems[static_cast<size_t>(idx)].choice;
 }
+
+void debugMessage(const std::string &msg)
+{
+    if (enable_debug_messages)
+    {
+        cout << msg << endl;
+    }
+}

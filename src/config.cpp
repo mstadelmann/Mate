@@ -273,6 +273,7 @@ int maxValStart = -100000;
 int minValStart = 100000;
 int minMaxDepth = 3;
 bool use_AB_pruning = true;
+bool enable_debug_messages = true;
 
 static std::string getBinaryDir()
 {
@@ -320,6 +321,7 @@ bool save_config_to_json()
     out << "  \"minValStart\": " << minValStart << ",\n";
     out << "  \"minMaxDepth\": " << minMaxDepth << ",\n";
     out << "  \"use_AB_pruning\": " << (use_AB_pruning ? "true" : "false") << ",\n";
+    out << "  \"enable_debug_messages\": " << (enable_debug_messages ? "true" : "false") << ",\n";
     auto writeArray = [&out](const char *name, double a[8][8])
     {
         out << "  \"" << name << "\": [\n";
@@ -466,6 +468,7 @@ bool load_config_from_json()
     findInt("minValStart", minValStart);
     findInt("minMaxDepth", minMaxDepth);
     findBool("use_AB_pruning", use_AB_pruning);
+    findBool("enable_debug_messages", enable_debug_messages);
 
     parseArray(content, "pawnEvalWhite", pawnEvalWhite);
     parseArray(content, "pawnEvalBlack", pawnEvalBlack);
