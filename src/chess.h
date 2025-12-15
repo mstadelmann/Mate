@@ -140,8 +140,7 @@ public:
     int getPieceValue(pieceCode);
     double getPositionEvalFactor(boardPositionType);
     double evaluateBoard(void);
-    chessMotionType smartMaxR(int depth, int alpha, int beta);
-    chessMotionType smartMinR(int depth, int alpha, int beta);
+    chessMotionType smartMoveR(int depth, int alpha, int beta);
     chessMotionType getHistoryLast();
     void performSmartMove();
     void board_editor();
