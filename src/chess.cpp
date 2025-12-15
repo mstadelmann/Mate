@@ -8,6 +8,10 @@ chess::chess()
     // default values
     replace_black_pawn = true;
     RecFuncCounter = 0;
+    white_checked = false;
+    black_checked = false;
+    white_checkmate = false;
+    black_checkmate = false;
 
     // Initialize players
     current_player = playerColor::white;
@@ -22,9 +26,6 @@ chess::chess()
             chessboard[row][col].color = playerColor::none;
         }
     }
-
-    // // Store initial board state in history
-    // chessboard_history.push_back(chessboard);
 }
 
 chess::~chess()
@@ -34,7 +35,6 @@ chess::~chess()
 
 bool chess::check_board_valid()
 {
-    // Check for exactly one white king and one black king
     int white_king_count = 0;
     int black_king_count = 0;
 
@@ -100,7 +100,6 @@ boardPositionType chess::query_position(boardCoordinateType coordinates)
 
 void chess::load_starting_position()
 {
-    // Set up pawns
     for (int file = 0; file < 8; ++file)
     {
         char current_file = static_cast<char>('A' + file);
@@ -108,33 +107,26 @@ void chess::load_starting_position()
         place_piece({current_file, 7, {pieceCode::pawn, playerColor::black}});
     }
 
-    // Set up rooks
     place_piece({'A', 1, {pieceCode::rook, playerColor::white}});
     place_piece({'H', 1, {pieceCode::rook, playerColor::white}});
     place_piece({'A', 8, {pieceCode::rook, playerColor::black}});
     place_piece({'H', 8, {pieceCode::rook, playerColor::black}});
 
-    // Set up knights
     place_piece({'B', 1, {pieceCode::knight, playerColor::white}});
     place_piece({'G', 1, {pieceCode::knight, playerColor::white}});
     place_piece({'B', 8, {pieceCode::knight, playerColor::black}});
     place_piece({'G', 8, {pieceCode::knight, playerColor::black}});
 
-    // Set up bishops
     place_piece({'C', 1, {pieceCode::bishop, playerColor::white}});
     place_piece({'F', 1, {pieceCode::bishop, playerColor::white}});
     place_piece({'C', 8, {pieceCode::bishop, playerColor::black}});
     place_piece({'F', 8, {pieceCode::bishop, playerColor::black}});
 
-    // Set up queens
     place_piece({'D', 1, {pieceCode::queen, playerColor::white}});
     place_piece({'D', 8, {pieceCode::queen, playerColor::black}});
 
-    // Set up kings
     place_piece({'E', 1, {pieceCode::king, playerColor::white}});
     place_piece({'E', 8, {pieceCode::king, playerColor::black}});
-
-    gamePositionHistory.push_back(chessboard);
 }
 
 std::string chess::current_player_string() const
@@ -195,6 +187,19 @@ void chess::printCurrentGame()
         {
             std::cout << "     Board evaluation: " << evaluateBoard() << "\n";
         }
+        else if (rank == 3)
+        {
+            if (white_checkmate)
+                std::cout << "     Checkmate! Black wins.\n";
+            else if (black_checkmate)
+                std::cout << "     Checkmate! White wins.\n";
+            else if (white_checked)
+                std::cout << "     White is in check!\n";
+            else if (black_checked)
+                std::cout << "     Black is in check!\n";
+            else
+                std::cout << "\n";
+        }
         else
         {
             std::cout << "\n";
@@ -237,7 +242,7 @@ bool chess::randomMove()
 
     chessMotionType moveToMake = legalMoves[dist(gen)];
     executeMove(moveToMake);
-    std::swap(current_player, other_player);
+    swapPlayers();
     return true;
 }
 
@@ -268,7 +273,7 @@ bool chess::manualMove()
             {
                 moveToMake.type_of_move = legalMove.type_of_move;
                 executeMove(moveToMake);
-                std::swap(current_player, other_player);
+                swapPlayers();
                 return true;
             }
         }
@@ -447,7 +452,7 @@ void chess::reverseMove()
     gamePositionHistory.pop_back();
 
     // Switch current player
-    // std::swap(current_player, other_player);
+    // game.swapPlayers();
 }
 
 boardCoordinateType chess::findKing()
@@ -465,6 +470,41 @@ boardCoordinateType chess::findKing()
     }
     // Return an invalid position if the king is not found
     return {'Z', -1};
+}
+
+void chess::detectCheckmate()
+{
+
+    for (int i = 0; i < 2; i++)
+    {
+        if (current_player == playerColor::white)
+        {
+            white_checked = currentlyChecked();
+            if (white_checked)
+            {
+                vector<chessMotionType> legalMoves = findAllLegalMoves();
+                white_checkmate = legalMoves.empty();
+            }
+            else
+            {
+                white_checkmate = false;
+            }
+        }
+        else
+        {
+            black_checked = currentlyChecked();
+            if (black_checked)
+            {
+                vector<chessMotionType> legalMoves = findAllLegalMoves();
+                black_checkmate = legalMoves.empty();
+            }
+            else
+            {
+                black_checkmate = false;
+            }
+        }
+        swapPlayers();
+    }
 }
 
 bool chess::currentlyChecked()
@@ -1018,10 +1058,10 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
         for (uint i = 0; i < legalMovesList.size(); i++)
         {
             executeMove(legalMovesList[i]);
-            std::swap(current_player, other_player);
+            swapPlayers();
             currentMove = smartMoveR(depth - 1, alpha, beta);
             reverseMove();
-            std::swap(current_player, other_player);
+            swapPlayers();
 
             if (currentMove.board_evaluation == minMaxVal)
             { // found equally good move, add to list for random pick
@@ -1092,7 +1132,7 @@ void chess::performSmartMove()
     chessMotionType currentSmartMove = smartMoveR(minMaxDepth, maxValStart, minValStart);
 
     executeMove(currentSmartMove);
-    std::swap(current_player, other_player);
+    swapPlayers();
 
     time(&end);
     std::cout << "#Analyzed moves: " << RecFuncCounter << std::endl;

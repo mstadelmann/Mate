@@ -107,6 +107,10 @@ private:
     inline const pieceType &at(char file, int rank) const { return chessboard[fileIndex(file)][rankIndex(rank)]; }
     inline pieceType &at(boardCoordinateType c) { return chessboard[fileIndex(c.file)][rankIndex(c.rank)]; }
     inline const pieceType &at(boardCoordinateType c) const { return chessboard[fileIndex(c.file)][rankIndex(c.rank)]; }
+    bool white_checked;
+    bool black_checked;
+    bool white_checkmate;
+    bool black_checkmate;
 
 public:
     chess();
@@ -146,6 +150,8 @@ public:
     void board_editor();
     void listMoveHistory();
     bool check_board_valid();
+    void detectCheckmate();
+    void swapPlayers() { std::swap(current_player, other_player); }
 };
 
 #endif /* CHESS_H */

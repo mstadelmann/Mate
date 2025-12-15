@@ -61,6 +61,7 @@ void game_loop(chess &game)
 
     while (true)
     {
+        game.detectCheckmate();
         game.printCurrentGame();
         auto selection = GameMenu(showMenu);
         showMenu = false;
@@ -79,6 +80,7 @@ void game_loop(chess &game)
         case GameMenuChoice::Undo:
             cout << "Undoing last move..." << endl;
             game.reverseMove();
+            game.swapPlayers();
             break;
         case GameMenuChoice::ListAllMoves:
             game.listLegalMoves();
