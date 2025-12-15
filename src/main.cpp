@@ -78,6 +78,7 @@ void game_loop(chess &game)
             break;
         case GameMenuChoice::Undo:
             cout << "Undoing last move..." << endl;
+            game.reverseMove();
             break;
         case GameMenuChoice::ListAllMoves:
             game.listLegalMoves();
@@ -96,7 +97,7 @@ void game_loop(chess &game)
             cout << "Quitting game and returning to main menu..." << endl;
             return;
         default:
-            cout << "Invalid selection; feature not implemented." << endl;
+            cout << "Invalid selection. Type 10 to list possible options." << endl;
             break;
         }
     }

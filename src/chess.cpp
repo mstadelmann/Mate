@@ -349,6 +349,8 @@ vector<boardPositionType> chess::get_all_pieces_of_color(playerColor color)
 
 void chess::executeMove(chessMotionType moveToExecute)
 {
+    // Save current board position to history before making the move
+    gamePositionHistory.push_back(chessboard);
 
     boardPositionType startPos = moveToExecute.start_position;
     boardPositionType destPos = moveToExecute.dest_position;
@@ -422,9 +424,8 @@ void chess::executeMove(chessMotionType moveToExecute)
         }
     }
 
-    // save history
+    // save move history
     gameHistory.push_back(moveToExecute);
-    gamePositionHistory.push_back(chessboard);
 
     // Switch current player
     // std::swap(current_player, other_player);
@@ -432,7 +433,7 @@ void chess::executeMove(chessMotionType moveToExecute)
 
 void chess::reverseMove()
 {
-    if (gameHistory.empty() || gamePositionHistory.size() < 2)
+    if (gameHistory.empty() || gamePositionHistory.empty())
     {
         std::cout << "No moves to undo." << std::endl;
         return;
@@ -441,7 +442,7 @@ void chess::reverseMove()
     // Remove the last move from history
     gameHistory.pop_back();
     // Restore the previous board position
-    chessboard = gamePositionHistory[gamePositionHistory.size() - 2];
+    chessboard = gamePositionHistory[gamePositionHistory.size() - 1];
     gamePositionHistory.pop_back();
 
     // Switch current player
@@ -928,22 +929,22 @@ double chess::getPositionEvalFactor(boardPositionType pos)
     switch (pos.piece.piece)
     {
     case pieceCode::pawn:
-        tempVal = (pos.piece.color == playerColor::white ? pawnEvalWhite[rank_idx][file_idx] : pawnEvalBlack[rank_idx][file_idx]);
+        tempVal = (pos.piece.color == playerColor::white ? pawnEvalWhite[rank_idx][file_idx] : -pawnEvalBlack[rank_idx][file_idx]);
         break;
     case pieceCode::rook:
-        tempVal = (pos.piece.color == playerColor::white ? rookEvalWhite[rank_idx][file_idx] : rookEvalBlack[rank_idx][file_idx]);
+        tempVal = (pos.piece.color == playerColor::white ? rookEvalWhite[rank_idx][file_idx] : -rookEvalBlack[rank_idx][file_idx]);
         break;
     case pieceCode::knight:
-        tempVal = (pos.piece.color == playerColor::white ? knightEval[rank_idx][file_idx] : knightEval[rank_idx][file_idx]);
+        tempVal = (pos.piece.color == playerColor::white ? knightEvalWhite[rank_idx][file_idx] : -knightEvalBlack[rank_idx][file_idx]);
         break;
     case pieceCode::bishop:
-        tempVal = (pos.piece.color == playerColor::white ? bishopEvalWhite[rank_idx][file_idx] : bishopEvalBlack[rank_idx][file_idx]);
+        tempVal = (pos.piece.color == playerColor::white ? bishopEvalWhite[rank_idx][file_idx] : -bishopEvalBlack[rank_idx][file_idx]);
         break;
     case pieceCode::king:
-        tempVal = (pos.piece.color == playerColor::white ? kingEvalWhite[rank_idx][file_idx] : kingEvalBlack[rank_idx][file_idx]);
+        tempVal = (pos.piece.color == playerColor::white ? kingEvalWhite[rank_idx][file_idx] : -kingEvalBlack[rank_idx][file_idx]);
         break;
     case pieceCode::queen:
-        tempVal = (pos.piece.color == playerColor::white ? evalQueen[rank_idx][file_idx] : evalQueen[rank_idx][file_idx]);
+        tempVal = (pos.piece.color == playerColor::white ? evalQueenWhite[rank_idx][file_idx] : -evalQueenBlack[rank_idx][file_idx]);
         break;
     default:
         tempVal = 0;
@@ -962,8 +963,8 @@ double chess::evaluateBoard(void)
             boardPositionType currentPosition = query_position({static_cast<char>('A' + file), rank + 1});
             int pol = currentPosition.piece.color == playerColor::white ? 1 : -1;
             double pieceVal = pol * (double)getPieceValue(currentPosition.piece.piece);
-            double posFac = getPositionEvalFactor(currentPosition);
-            gameCount = gameCount + position_gamma * posFac * pieceVal + (1 - position_gamma) * pieceVal;
+            double posVal = getPositionEvalFactor(currentPosition);
+            gameCount = gameCount + position_gamma * posVal + pieceVal;
         }
     }
     return gameCount;
