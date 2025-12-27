@@ -177,7 +177,8 @@ void chess::printCurrentGame()
             if (!gameHistory.empty())
             {
                 chessMotionType last_move = gameHistory.back();
-                last_move_str = last_move.start_position.coord.file + std::to_string(last_move.start_position.coord.rank) + " - " +
+                last_move_str = pieceTypeToChar(last_move.start_position.piece) + " " +
+                                last_move.start_position.coord.file + std::to_string(last_move.start_position.coord.rank) + " - " +
                                 last_move.dest_position.coord.file + std::to_string(last_move.dest_position.coord.rank);
             }
 
@@ -1142,7 +1143,7 @@ void chess::performSmartMove()
 void chess::board_editor()
 {
     std::cout << "\nBoard Editor: place or remove pieces." << std::endl;
-    std::cout << "Commands: PLACE <piece> <color> <coord>, REMOVE <coord>, DEFAULT, BACK" << std::endl;
+    std::cout << "Commands: PLACE <piece> <color> <coord>, REMOVE <coord>, EMPTY, DEFAULT, BACK" << std::endl;
     std::cout << "Pieces: K,Q,R,B,N,P  Colors: W,B  Coord: like E2" << std::endl;
 
     bool done = false;
@@ -1163,6 +1164,16 @@ void chess::board_editor()
         else if (cmd == "DEFAULT")
         {
             load_starting_position();
+        }
+        else if (cmd == "EMPTY")
+        {
+            for (int rank = 1; rank <= 8; ++rank)
+            {
+                for (char file = 'A'; file <= 'H'; ++file)
+                {
+                    place_piece({file, rank}, {pieceCode::empty, playerColor::none});
+                }
+            }
         }
         else if (cmd == "PLACE")
         {
@@ -1241,7 +1252,7 @@ void chess::board_editor()
         }
         else
         {
-            std::cout << "Unknown command. Use PLACE/REMOVE/DEFAULT/BACK." << std::endl;
+            std::cout << "Unknown command. Use PLACE/REMOVE/EMPTY/DEFAULT/BACK." << std::endl;
         }
     }
 }
