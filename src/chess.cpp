@@ -1261,3 +1261,84 @@ void chess::board_editor()
         }
     }
 }
+
+std::string moveTypeToString(moveType m)
+{
+    switch (m)
+    {
+    case moveType::undefined:
+        return "undefined";
+    case moveType::normal:
+        return "normal";
+    case moveType::capture:
+        return "capture";
+    case moveType::castling_kingside:
+        return "castling_kingside";
+    case moveType::castling_queenside:
+        return "castling_queenside";
+    case moveType::en_passant:
+        return "en_passant";
+    case moveType::promotion_queen:
+        return "promotion_queen";
+    case moveType::promotion_rook:
+        return "promotion_rook";
+    case moveType::promotion_bishop:
+        return "promotion_bishop";
+    case moveType::promotion_knight:
+        return "promotion_knight";
+    default:
+        return "undefined";
+    }
+}
+
+std::string movedByToString(moved_by mb)
+{
+    switch (mb)
+    {
+    case moved_by::human:
+        return "human";
+    case moved_by::engine:
+        return "engine";
+    case moved_by::network:
+        return "network";
+    case moved_by::none:
+    default:
+        return "none";
+    }
+}
+
+std::string pieceCodeToString(pieceCode pc)
+{
+    switch (pc)
+    {
+    case pieceCode::pawn:
+        return "pawn";
+    case pieceCode::rook:
+        return "rook";
+    case pieceCode::knight:
+        return "knight";
+    case pieceCode::bishop:
+        return "bishop";
+    case pieceCode::queen:
+        return "queen";
+    case pieceCode::king:
+        return "king";
+    case pieceCode::empty:
+    default:
+        return "empty";
+    }
+}
+
+std::string playerColorToString(playerColor c)
+{
+    switch (c)
+    {
+    case playerColor::white:
+        return "white";
+    case playerColor::black:
+        return "black";
+    case playerColor::none:
+    default:
+        return "none";
+    }
+}

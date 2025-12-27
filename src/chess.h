@@ -155,4 +155,9 @@ public:
     void swapPlayers() { std::swap(current_player, other_player); }
 };
 
+std::string moveTypeToString(moveType);
+std::string movedByToString(moved_by);
+std::string pieceCodeToString(pieceCode);
+std::string playerColorToString(playerColor);
+
 #endif /* CHESS_H */
