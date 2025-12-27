@@ -80,18 +80,24 @@ void openDatabase(chess currentGame)
 
     vector<chessMotionType> history = currentGame.getHistory();
 
+    auto pos_str = [](const boardPositionType &p)
+    {
+        return std::string(1, p.coord.file) + std::to_string(p.coord.rank);
+    };
+    auto piece_str = [](const pieceType &pc)
+    {
+        return pieceCodeToString(pc.piece) + "_" + playerColorToString(pc.color);
+    };
+
     for (uint i = 0; i < history.size(); i++)
     {
-        string move_type = moveTypeToString(history[i].type_of_move);
-        string moved_by = movedByToString(history[i].moved_by_whom);
-        string start_pos = std::string(1, history[i].start_position.coord.file) +
-                           std::to_string(static_cast<int>(history[i].start_position.coord.rank));
-        string dest_pos = std::string(1, history[i].dest_position.coord.file) +
-                          std::to_string(static_cast<int>(history[i].dest_position.coord.rank));
-        string start_piece = pieceCodeToString(history[i].start_position.piece.piece) +
-                             "_" + playerColorToString(history[i].start_position.piece.color);
-        string dest_piece = pieceCodeToString(history[i].dest_position.piece.piece) +
-                            "_" + playerColorToString(history[i].dest_position.piece.color);
+        const auto &m = history[i];
+        string move_type = moveTypeToString(m.type_of_move);
+        string moved_by = movedByToString(m.moved_by_whom);
+        string start_pos = pos_str(m.start_position);
+        string dest_pos = pos_str(m.dest_position);
+        string start_piece = piece_str(m.start_position.piece);
+        string dest_piece = piece_str(m.dest_position.piece);
 
         int board_count = history[i].board_evaluation;
 
