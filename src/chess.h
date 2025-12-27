@@ -145,6 +145,7 @@ public:
     double getPositionEvalFactor(boardPositionType);
     double evaluateBoard(void);
     chessMotionType smartMoveR(int depth, int alpha, int beta);
+    vector<chessMotionType> getHistory();
     chessMotionType getHistoryLast();
     void performSmartMove();
     void board_editor();

@@ -1115,6 +1115,11 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
     return bestMove;
 }
 
+vector<chessMotionType> chess::getHistory()
+{
+    return gameHistory;
+}
+
 chessMotionType chess::getHistoryLast()
 {
     return gameHistory.back();

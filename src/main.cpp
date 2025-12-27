@@ -1,6 +1,7 @@
 #include "chess.h"
 #include "utils.h"
 #include "config.h"
+#include "database.h"
 
 void game_loop(chess &);
 
@@ -91,6 +92,7 @@ void game_loop(chess &game)
             break;
         case GameMenuChoice::WriteDB:
             cout << "Writing to database..." << endl;
+            openDatabase(game);
             break;
         case GameMenuChoice::Help:
             showMenu = true;
