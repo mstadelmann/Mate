@@ -1,5 +1,7 @@
 #include "database.h"
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 void store_to_DB(chess currentGame)
 {
@@ -283,4 +285,279 @@ void store_to_DB(chess currentGame)
         }
     }
     sqlite3_close(db);
+}
+
+static pieceType decode_square_code(const std::string &code)
+{
+    pieceType p{};
+    p.piece = pieceCode::empty;
+    p.color = playerColor::none;
+    if (code.size() >= 2)
+    {
+        char pc = code[0];
+        char cc = code[1];
+        switch (pc)
+        {
+        case 'P':
+            p.piece = pieceCode::pawn;
+            break;
+        case 'R':
+            p.piece = pieceCode::rook;
+            break;
+        case 'N':
+            p.piece = pieceCode::knight;
+            break;
+        case 'B':
+            p.piece = pieceCode::bishop;
+            break;
+        case 'Q':
+            p.piece = pieceCode::queen;
+            break;
+        case 'K':
+            p.piece = pieceCode::king;
+            break;
+        case 'E':
+        default:
+            p.piece = pieceCode::empty;
+            break;
+        }
+        switch (cc)
+        {
+        case 'W':
+            p.color = playerColor::white;
+            break;
+        case 'B':
+            p.color = playerColor::black;
+            break;
+        case 'N':
+        default:
+            p.color = playerColor::none;
+            break;
+        }
+    }
+    return p;
+}
+
+void LoadFromDatabase(chess &game)
+{
+    sqlite3 *db = nullptr;
+    char *zErrMsg = nullptr;
+    int rc = sqlite3_open("chessyDB.db", &db);
+    if (rc)
+    {
+        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        if (db)
+            sqlite3_close(db);
+        return;
+    }
+
+    // List games with move counts
+    std::vector<std::pair<std::string, int>> games;
+    {
+        const char *sql = "SELECT GAME_NAME, COUNT(*) FROM Moves GROUP BY GAME_NAME ORDER BY GAME_NAME;";
+        sqlite3_stmt *stmt = nullptr;
+        rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        if (rc == SQLITE_OK)
+        {
+            while (sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                const unsigned char *gn = sqlite3_column_text(stmt, 0);
+                int cnt = sqlite3_column_int(stmt, 1);
+                games.emplace_back(std::string(reinterpret_cast<const char *>(gn ? gn : reinterpret_cast<const unsigned char *>(""))), cnt);
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (games.empty())
+    {
+        std::cout << "No games found in database." << std::endl;
+        sqlite3_close(db);
+        return;
+    }
+
+    std::cout << "Available games:" << std::endl;
+    for (size_t i = 0; i < games.size(); ++i)
+    {
+        std::cout << "  [" << (i + 1) << "] " << games[i].first << " (" << games[i].second << " moves)" << std::endl;
+    }
+
+    std::string selectedName;
+    while (selectedName.empty())
+    {
+        std::cout << "Pick a game by number or name (or 'q' to cancel): ";
+        std::string choice;
+        if (!std::getline(std::cin, choice))
+        {
+            std::cout << "Input error." << std::endl;
+            sqlite3_close(db);
+            return;
+        }
+        if (choice.empty())
+        {
+            // Newline leftover from prior input; re-prompt
+            continue;
+        }
+        if (choice == "q" || choice == "Q")
+        {
+            sqlite3_close(db);
+            std::cout << "Canceled load." << std::endl;
+            return;
+        }
+        bool is_digits = std::all_of(choice.begin(), choice.end(), [](unsigned char ch)
+                                     { return std::isdigit(ch); });
+        if (is_digits)
+        {
+            int idx = std::stoi(choice);
+            if (idx >= 1 && idx <= static_cast<int>(games.size()))
+            {
+                selectedName = games[idx - 1].first;
+                break;
+            }
+        }
+        // Try exact name match
+        for (const auto &g : games)
+        {
+            if (g.first == choice)
+            {
+                selectedName = g.first;
+                break;
+            }
+        }
+        if (selectedName.empty())
+        {
+            std::cout << "Invalid selection. Try again." << std::endl;
+        }
+    }
+
+    // Load BOARD snapshots for selected game
+    std::vector<chessboardType> boards;
+    {
+        std::ostringstream oss;
+        oss << "SELECT ID, ";
+        for (char file = 'A'; file <= 'H'; ++file)
+        {
+            for (int rank = 1; rank <= 8; ++rank)
+            {
+                oss << file << rank;
+                if (!(file == 'H' && rank == 8))
+                    oss << ", ";
+            }
+        }
+        oss << " FROM BOARD WHERE GAME_NAME=? ORDER BY ID ASC;";
+
+        sqlite3_stmt *stmt = nullptr;
+        rc = sqlite3_prepare_v2(db, oss.str().c_str(), -1, &stmt, nullptr);
+        if (rc == SQLITE_OK)
+        {
+            sqlite3_bind_text(stmt, 1, selectedName.c_str(), -1, SQLITE_TRANSIENT);
+            while (sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                chessboardType board{};
+                // Columns: 0 -> ID, 1..64 -> squares
+                for (char file = 'A'; file <= 'H'; ++file)
+                {
+                    int fi = file - 'A';
+                    for (int rank = 1; rank <= 8; ++rank)
+                    {
+                        int ri = rank - 1;
+                        int col = 1 + fi * 8 + (rank - 1);
+                        const unsigned char *txt = sqlite3_column_text(stmt, col);
+                        std::string code = txt ? std::string(reinterpret_cast<const char *>(txt)) : std::string("EN");
+                        board[fi][ri] = decode_square_code(code);
+                    }
+                }
+                boards.push_back(board);
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // Optional: Load simple move descriptors for UI
+    std::vector<std::string> moveInfo;
+    {
+        const char *sql = "SELECT ID, MOVE_TYPE, MOVED_BY, START_POS, DEST_POS FROM Moves WHERE GAME_NAME=? ORDER BY ID ASC;";
+        sqlite3_stmt *stmt = nullptr;
+        rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        if (rc == SQLITE_OK)
+        {
+            sqlite3_bind_text(stmt, 1, selectedName.c_str(), -1, SQLITE_TRANSIENT);
+            while (sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                int id = sqlite3_column_int(stmt, 0);
+                const char *mt = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+                const char *mb = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+                const char *sp = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+                const char *dp = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+                std::ostringstream oss;
+                oss << "#" << id << " "
+                    << (mb ? mb : "") << " "
+                    << (mt ? mt : "") << ": "
+                    << (sp ? sp : "") << " -> "
+                    << (dp ? dp : "");
+                moveInfo.push_back(oss.str());
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+
+    if (boards.empty())
+    {
+        std::cout << "No board snapshots found for '" << selectedName << "'." << std::endl;
+        return;
+    }
+
+    auto apply_board = [&](const chessboardType &board)
+    {
+        for (char file = 'A'; file <= 'H'; ++file)
+        {
+            int fi = file - 'A';
+            for (int rank = 1; rank <= 8; ++rank)
+            {
+                int ri = rank - 1;
+                boardCoordinateType c{file, rank};
+                game.place_piece(c, board[fi][ri]);
+            }
+        }
+    };
+
+    int idx = 0;
+    while (true)
+    {
+        apply_board(boards[idx]);
+        std::cout << "\nBrowsing '" << selectedName << "' (" << (idx + 1) << "/" << boards.size() << ")" << std::endl;
+        if (idx < static_cast<int>(moveInfo.size()))
+        {
+            std::cout << moveInfo[idx] << std::endl;
+        }
+        game.printCurrentGame();
+        std::cout << "Use Left/Right arrows or 'a'/'d'. Enter=select, 'q'=cancel" << std::endl;
+
+        std::string in;
+        std::getline(std::cin, in);
+        if (in.empty())
+        {
+            // Enter selects current position
+            std::cout << "Loaded position #" << (idx + 1) << " for '" << selectedName << "'." << std::endl;
+            return;
+        }
+        if (in == "q" || in == "Q")
+        {
+            std::cout << "Canceled load." << std::endl;
+            return;
+        }
+        // Arrow escape sequences or fallback keys
+        if (in == "\x1b[C" || in == "d" || in == "D" || in == "right")
+        {
+            if (idx + 1 < static_cast<int>(boards.size()))
+                idx++;
+        }
+        else if (in == "\x1b[D" || in == "a" || in == "A" || in == "left")
+        {
+            if (idx > 0)
+                idx--;
+        }
+    }
 }

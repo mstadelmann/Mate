@@ -35,6 +35,7 @@ int main(int argc, char **argv)
             break;
         case MainMenuChoice::LoadFromDatabase:
             cout << "Loading game from database..." << endl;
+            LoadFromDatabase(game);
             break;
         case MainMenuChoice::Help:
             cout << "Help: Use the menu to select actions." << endl;
