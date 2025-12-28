@@ -1,5 +1,6 @@
 #include "chess.h"
 #include "utils.h"
+#include "database.h"
 #include <iostream>
 #include <random>
 #include <ctime>
@@ -78,6 +79,11 @@ void chess::init_game()
     emptyMove.type_of_move = moveType::init;
     gameHistory.push_back(emptyMove);
     gamePositionHistory.push_back(chessboard);
+}
+
+void chess::set_game_name(const std::string &name)
+{
+    game_name = name;
 }
 
 void chess::place_piece(boardPositionType position)
@@ -1187,7 +1193,7 @@ void chess::performSmartMove()
 void chess::board_editor()
 {
     std::cout << "\nBoard Editor: place or remove pieces." << std::endl;
-    std::cout << "Commands: PLACE <piece> <color> <coord>, REMOVE <coord>, EMPTY, DEFAULT, BACK" << std::endl;
+    std::cout << "Commands: PLACE <piece> <color> <coord>, REMOVE <coord>, EMPTY, DEFAULT, SAVE, BACK" << std::endl;
     std::cout << "Pieces: K,Q,R,B,N,P  Colors: W,B  Coord: like E2" << std::endl;
 
     bool done = false;
@@ -1218,6 +1224,23 @@ void chess::board_editor()
                     place_piece({file, rank}, {pieceCode::empty, playerColor::none});
                 }
             }
+        }
+        else if (cmd == "SAVE")
+        {
+            std::cout << "Enter game name to save: " << std::flush;
+            std::string name;
+            std::cin >> std::ws; // consume any leftover whitespace/newline
+            std::getline(std::cin, name);
+            if (name.empty())
+            {
+                std::cout << "Invalid name." << std::endl;
+                continue;
+            }
+            // Initialize minimal history snapshot with current board
+            init_game();
+            set_game_name(name);
+            store_to_DB(*this);
+            std::cout << "Saved to database under '" << name << "'." << std::endl;
         }
         else if (cmd == "PLACE")
         {

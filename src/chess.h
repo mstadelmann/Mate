@@ -118,6 +118,7 @@ public:
     chess();
     ~chess();
     void init_game();
+    void set_game_name(const std::string &name);
     void load_starting_position();
     void printCurrentGame();
     string current_player_string() const;
