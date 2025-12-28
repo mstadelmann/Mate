@@ -102,6 +102,7 @@ private:
     vector<chessMotionType> gameHistory;
     vector<chessboardType> gamePositionHistory;
     int RecFuncCounter;
+    int skippedBranches;
     // Helpers for board access
     inline static int fileIndex(char f) { return f - 'A'; }
     inline static int rankIndex(int r) { return r - 1; }

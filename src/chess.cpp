@@ -14,6 +14,7 @@ chess::chess()
     // default values
     replace_black_pawn = true;
     RecFuncCounter = 0;
+    skippedBranches = 0;
     white_checked = false;
     black_checked = false;
     white_checkmate = false;
@@ -208,7 +209,7 @@ void chess::printCurrentGame()
         }
         else if (rank == 6)
         {
-            std::cout << "     Moves played: " << gameHistory.size() << "\n";
+            std::cout << "     Moves played: " << gameHistory.size() - 1 << "\n";
         }
         else if (rank == 5)
         {
@@ -1092,7 +1093,7 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
     {
         // checkmate before depth 0 reached
         bestMove = getHistoryLast();
-        bestMove.board_evaluation = -earlyMattVal;
+        bestMove.board_evaluation = playerFactor * earlyMattVal;
     }
     else
     {
@@ -1133,9 +1134,20 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
             }
             if (use_AB_pruning)
             {
-                alpha = std::max(alpha, minMaxVal);
+                if (is_white)
+                {
+                    // Maximizing node: tighten lower bound
+                    alpha = std::max(alpha, minMaxVal);
+                }
+                else if (is_black)
+                {
+                    // Minimizing node: tighten upper bound
+                    beta = std::min(beta, minMaxVal);
+                }
+
                 if (beta <= alpha)
                 {
+                    skippedBranches++;
                     break;
                 }
             }
@@ -1177,8 +1189,7 @@ void chess::performSmartMove()
     time(&start);
 
     RecFuncCounter = 0;
-
-    bool whiteToMove = current_player == playerColor::white;
+    skippedBranches = 0;
 
     chessMotionType currentSmartMove = smartMoveR(minMaxDepth, maxValStart, minValStart);
 
@@ -1186,7 +1197,11 @@ void chess::performSmartMove()
     swapPlayers();
 
     time(&end);
-    std::cout << "#Analyzed moves: " << RecFuncCounter << std::endl;
+    std::cout << "Nb. analyzed moves: " << RecFuncCounter << std::endl;
+    if (use_AB_pruning)
+    {
+        std::cout << "Skipped branches due to alpha-beta pruning: " << skippedBranches << std::endl;
+    }
     std::cout << "Required time: " << difftime(end, start) << " seconds." << std::endl;
 }
 
