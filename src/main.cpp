@@ -93,7 +93,7 @@ void game_loop(chess &game)
             break;
         case GameMenuChoice::WriteDB:
             cout << "Writing to database..." << endl;
-            openDatabase(game);
+            store_to_DB(game);
             break;
         case GameMenuChoice::Help:
             showMenu = true;

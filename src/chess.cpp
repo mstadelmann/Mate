@@ -1159,6 +1159,11 @@ chessMotionType chess::getHistoryLast()
     return gameHistory.back();
 }
 
+chessboard_historyType chess::getPositionHistory()
+{
+    return gamePositionHistory;
+}
+
 void chess::performSmartMove()
 {
     time_t start;

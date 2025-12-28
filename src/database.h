@@ -15,7 +15,7 @@
 #include "chess.h"
 
 static int callback(void *NotUsed, int argc, char **argv, char **azColName);
-void openDatabase(chess);
-void writeDatabase(void);
+void store_to_DB(chess);
+void write_moves(void);
 
 #endif /* DATABASE_H_ */

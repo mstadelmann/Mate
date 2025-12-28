@@ -151,6 +151,8 @@ public:
     chessMotionType smartMoveR(int depth, int alpha, int beta);
     vector<chessMotionType> getHistory();
     chessMotionType getHistoryLast();
+    chessboard_historyType getPositionHistory();
+
     void performSmartMove();
     void board_editor();
     void listMoveHistory();
