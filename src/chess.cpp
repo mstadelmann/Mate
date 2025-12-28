@@ -124,6 +124,15 @@ boardPositionType chess::query_position(boardCoordinateType coordinates)
 
 void chess::load_starting_position()
 {
+    // Initialize an empty board
+    for (int row = 0; row < 8; ++row)
+    {
+        for (int col = 0; col < 8; ++col)
+        {
+            chessboard[row][col].piece = pieceCode::empty;
+            chessboard[row][col].color = playerColor::none;
+        }
+    }
     for (int file = 0; file < 8; ++file)
     {
         char current_file = static_cast<char>('A' + file);
