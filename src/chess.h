@@ -39,6 +39,7 @@ enum class gameState
 
 enum class moveType
 {
+    init,
     undefined,
     normal,
     capture,
@@ -92,6 +93,7 @@ typedef struct chessMotionStruct
 class chess
 {
 private:
+    string game_name;
     chessboardType chessboard;
     chessboard_historyType chessboard_history;
     playerColor current_player;
@@ -115,9 +117,11 @@ private:
 public:
     chess();
     ~chess();
+    void init_game();
     void load_starting_position();
     void printCurrentGame();
     string current_player_string() const;
+    string gameName() const { return game_name; }
     void place_piece(boardPositionType);
     void place_piece(boardCoordinateType, pieceType);
     boardPositionType query_position(boardCoordinateType);

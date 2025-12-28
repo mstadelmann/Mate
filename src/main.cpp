@@ -58,6 +58,7 @@ void game_loop(chess &game)
         std::cout << "ERROR: The current board position is invalid. Returning to Main Menu" << std::endl;
         return;
     }
+    game.init_game();
     bool showMenu = true;
 
     while (true)

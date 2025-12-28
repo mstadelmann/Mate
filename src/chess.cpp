@@ -2,9 +2,14 @@
 #include "utils.h"
 #include <iostream>
 #include <random>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <cstdlib>
 
 chess::chess()
 {
+    game_name = "Unnamed_Game";
     // default values
     replace_black_pawn = true;
     RecFuncCounter = 0;
@@ -54,6 +59,25 @@ bool chess::check_board_valid()
     }
 
     return (white_king_count == 1) && (black_king_count == 1);
+}
+
+void chess::init_game()
+{
+    time_t now = time(nullptr);
+    tm *ltm = localtime(&now);
+    std::ostringstream oss;
+    oss << std::put_time(ltm, "%Y_%m_%d__%H_%M");
+
+    const char *userEnv = std::getenv("USER");
+    std::string user = (userEnv && *userEnv) ? userEnv : "unknown";
+
+    game_name = oss.str() + "_" + user;
+
+    // save initial position and empty move
+    chessMotionType emptyMove = {};
+    emptyMove.type_of_move = moveType::init;
+    gameHistory.push_back(emptyMove);
+    gamePositionHistory.push_back(chessboard);
 }
 
 void chess::place_piece(boardPositionType position)
@@ -433,6 +457,7 @@ void chess::executeMove(chessMotionType moveToExecute)
 
     // save move history
     gameHistory.push_back(moveToExecute);
+    // gamePositionHistory.push_back(chessboard);
 
     // Switch current player
     // std::swap(current_player, other_player);
@@ -1266,6 +1291,8 @@ std::string moveTypeToString(moveType m)
 {
     switch (m)
     {
+    case moveType::init:
+        return "init";
     case moveType::undefined:
         return "undefined";
     case moveType::normal:
