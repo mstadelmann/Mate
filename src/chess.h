@@ -56,6 +56,7 @@ enum class moved_by
 {
     human,
     engine,
+    random,
     network,
     none
 };
@@ -66,8 +67,8 @@ typedef struct pieceStruct
     playerColor color;
 } pieceType;
 
-typedef array<array<pieceType, 8>, 8> chessboardType; // chessboardType[file][rank]
-typedef vector<chessboardType> chessboard_historyType;
+typedef array<array<pieceType, 8>, 8> boardType; // boardType[file][rank]
+typedef vector<boardType> boardVector;
 
 typedef struct boardCoordinateStruct
 {
@@ -88,19 +89,19 @@ typedef struct chessMotionStruct
     moveType type_of_move;
     moved_by moved_by_whom;
     int board_evaluation;
-} chessMotionType;
+} motionType;
+typedef vector<motionType> motionVector;
 
 class chess
 {
 private:
     string game_name;
-    chessboardType chessboard;
-    chessboard_historyType chessboard_history;
+    boardType chessboard;
     playerColor current_player;
     playerColor other_player;
     bool replace_black_pawn;
-    vector<chessMotionType> gameHistory;
-    vector<chessboardType> gamePositionHistory;
+    motionVector gameHistory;
+    boardVector gamePositionHistory;
     int RecFuncCounter;
     int skippedBranches;
     // Castling rights and En Passant
@@ -149,17 +150,17 @@ public:
     void place_piece(boardCoordinateType, pieceType);
     boardPositionType query_position(boardCoordinateType);
     vector<boardPositionType> get_all_pieces_of_color(playerColor);
-    vector<chessMotionType> findAllLegalMoves();
+    motionVector findAllLegalMoves();
 
-    vector<chessMotionType> findLegalPawnMoves(boardCoordinateType);
-    vector<chessMotionType> findLegalRookMoves(boardCoordinateType);
-    vector<chessMotionType> findLegalKnightMoves(boardCoordinateType);
-    vector<chessMotionType> findLegalBishopMoves(boardCoordinateType);
-    vector<chessMotionType> findLegalQueenMoves(boardCoordinateType);
-    vector<chessMotionType> findLegalKingMoves(boardCoordinateType);
+    motionVector findLegalPawnMoves(boardCoordinateType);
+    motionVector findLegalRookMoves(boardCoordinateType);
+    motionVector findLegalKnightMoves(boardCoordinateType);
+    motionVector findLegalBishopMoves(boardCoordinateType);
+    motionVector findLegalQueenMoves(boardCoordinateType);
+    motionVector findLegalKingMoves(boardCoordinateType);
     bool validatePosition(boardCoordinateType) const;
-    bool check_move_legal(chessMotionType);
-    void executeMove(chessMotionType);
+    bool check_move_legal(motionType);
+    void executeMove(motionType);
     bool manualMove();
     bool randomMove();
     boardCoordinateType chessCoordinatesFromString(const string &);
@@ -171,10 +172,10 @@ public:
     int getPieceValue(pieceCode);
     double getPositionEvalFactor(boardPositionType);
     double evaluateBoard(void);
-    chessMotionType smartMoveR(int depth, int alpha, int beta);
-    vector<chessMotionType> getHistory() const;
-    chessMotionType getHistoryLast() const;
-    chessboard_historyType getPositionHistory() const;
+    motionType smartMoveR(int depth, int alpha, int beta);
+    motionVector getHistory() const;
+    motionType getHistoryLast() const;
+    boardVector getPositionHistory() const;
 
     void performSmartMove();
     void board_editor();

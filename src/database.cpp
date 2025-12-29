@@ -129,7 +129,7 @@ namespace
     static void insert_moves(sqlite3 *db, const chess &currentGame)
     {
         char *zErrMsg = nullptr;
-        vector<chessMotionType> history = currentGame.getHistory();
+        vector<motionType> history = currentGame.getHistory();
         for (size_t i = 0; i < history.size(); ++i)
         {
             const auto &m = history[i];
@@ -218,11 +218,11 @@ namespace
     static void insert_board_snapshots(sqlite3 *db, const chess &currentGame)
     {
         char *zErrMsg = nullptr;
-        chessboard_historyType positions = currentGame.getPositionHistory();
+        boardVector positions = currentGame.getPositionHistory();
         const std::string game_name = currentGame.gameName();
         for (size_t idx = 0; idx < positions.size(); ++idx)
         {
-            const chessboardType &board = positions[idx];
+            const boardType &board = positions[idx];
             std::ostringstream oss;
             oss << "INSERT INTO " << kBoardTable << " (GAME_NAME,ID,";
             for (char file = 'A'; file <= 'H'; ++file)
@@ -267,7 +267,7 @@ namespace
         }
     }
 
-    static void apply_board_to_game(chess &game, const chessboardType &board)
+    static void apply_board_to_game(chess &game, const boardType &board)
     {
         for (char file = 'A'; file <= 'H'; ++file)
         {
@@ -352,9 +352,9 @@ namespace
         return selectedName;
     }
 
-    static std::vector<chessboardType> load_boards_for_game(sqlite3 *db, const std::string &selectedName)
+    static std::vector<boardType> load_boards_for_game(sqlite3 *db, const std::string &selectedName)
     {
-        std::vector<chessboardType> boards;
+        std::vector<boardType> boards;
         std::ostringstream oss;
         oss << "SELECT ID, ";
         for (char file = 'A'; file <= 'H'; ++file)
@@ -374,7 +374,7 @@ namespace
             sqlite3_bind_text(stmt, 1, selectedName.c_str(), -1, SQLITE_TRANSIENT);
             while (sqlite3_step(stmt) == SQLITE_ROW)
             {
-                chessboardType board{};
+                boardType board{};
                 for (char file = 'A'; file <= 'H'; ++file)
                 {
                     int fi = file - 'A';
@@ -423,7 +423,7 @@ namespace
     }
 
     static void browse_boards_interactive(chess &game, const std::string &selectedName,
-                                          const std::vector<chessboardType> &boards,
+                                          const std::vector<boardType> &boards,
                                           const std::vector<std::string> &moveInfo)
     {
         if (boards.empty())

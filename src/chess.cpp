@@ -84,7 +84,7 @@ void chess::init_game()
     game_name = oss.str() + "_" + user;
 
     // save initial position and empty move
-    chessMotionType emptyMove = {};
+    motionType emptyMove = {};
     emptyMove.type_of_move = moveType::init;
     gameHistory.push_back(emptyMove);
     gamePositionHistory.push_back(chessboard);
@@ -233,7 +233,7 @@ void chess::printCurrentGame()
             string last_move_str = "None";
             if (gameHistory.size() > 1)
             {
-                chessMotionType last_move = gameHistory.back();
+                motionType last_move = gameHistory.back();
                 last_move_str = pieceTypeToChar(last_move.start_position.piece) + " " +
                                 last_move.start_position.coord.file + std::to_string(last_move.start_position.coord.rank) + " - " +
                                 last_move.dest_position.coord.file + std::to_string(last_move.dest_position.coord.rank);
@@ -288,7 +288,7 @@ boardCoordinateType chess::chessCoordinatesFromString(const std::string &coordSt
 
 bool chess::randomMove()
 {
-    vector<chessMotionType> legalMoves = findAllLegalMoves();
+    motionVector legalMoves = findAllLegalMoves();
     if (legalMoves.empty())
     {
         std::cout << "No legal moves available." << std::endl;
@@ -298,8 +298,8 @@ bool chess::randomMove()
     std::mt19937 gen(rd());
     std::uniform_int_distribution<std::size_t> dist(0, legalMoves.size() - 1);
 
-    chessMotionType moveToMake = legalMoves[dist(gen)];
-    moveToMake.moved_by_whom = moved_by::engine;
+    motionType moveToMake = legalMoves[dist(gen)];
+    moveToMake.moved_by_whom = moved_by::random;
     executeMove(moveToMake);
     swapPlayers();
     return true;
@@ -319,9 +319,9 @@ bool chess::manualMove()
         boardPositionType startPos = query_position(startCoord);
         boardPositionType endPos = query_position(endCoord);
 
-        chessMotionType moveToMake = {startPos, endPos, moveType::undefined, moved_by::human, 0};
+        motionType moveToMake = {startPos, endPos, moveType::undefined, moved_by::human, 0};
 
-        vector<chessMotionType> legalMoves = findAllLegalMoves();
+        motionVector legalMoves = findAllLegalMoves();
 
         for (const auto &legalMove : legalMoves)
         {
@@ -347,15 +347,15 @@ bool chess::manualMove()
     return false;
 }
 
-vector<chessMotionType> chess::findAllLegalMoves()
+motionVector chess::findAllLegalMoves()
 {
-    vector<chessMotionType> allLegalMoves;
+    motionVector allLegalMoves;
 
     // For each piece of the current player, find its legal moves
     vector<boardPositionType> playerPieces = get_all_pieces_of_color(current_player);
     for (const auto &piecePos : playerPieces)
     {
-        vector<chessMotionType> currentLegalMoves;
+        motionVector currentLegalMoves;
         // Depending on the piece type, find its legal moves
         switch (piecePos.piece.piece)
         {
@@ -412,7 +412,7 @@ vector<boardPositionType> chess::get_all_pieces_of_color(playerColor color)
     return piecesList;
 }
 
-void chess::executeMove(chessMotionType moveToExecute)
+void chess::executeMove(motionType moveToExecute)
 {
     // Save current board position to history before making the move
     gamePositionHistory.push_back(chessboard);
@@ -564,7 +564,7 @@ void chess::detectCheckmate()
             white_checked = currentlyChecked();
             if (white_checked)
             {
-                vector<chessMotionType> legalMoves = findAllLegalMoves();
+                motionVector legalMoves = findAllLegalMoves();
                 white_checkmate = legalMoves.empty();
             }
             else
@@ -577,7 +577,7 @@ void chess::detectCheckmate()
             black_checked = currentlyChecked();
             if (black_checked)
             {
-                vector<chessMotionType> legalMoves = findAllLegalMoves();
+                motionVector legalMoves = findAllLegalMoves();
                 black_checkmate = legalMoves.empty();
             }
             else
@@ -599,7 +599,7 @@ bool chess::currentlyChecked()
     return is_square_attacked(kingPos, other_player);
 }
 
-bool chess::check_move_legal(chessMotionType moveToTest)
+bool chess::check_move_legal(motionType moveToTest)
 {
 
     executeMove(moveToTest);
@@ -608,9 +608,9 @@ bool chess::check_move_legal(chessMotionType moveToTest)
     return !cur_checked;
 }
 
-vector<chessMotionType> chess::findLegalPawnMoves(boardCoordinateType from)
+motionVector chess::findLegalPawnMoves(boardCoordinateType from)
 {
-    vector<chessMotionType> legalMoves;
+    motionVector legalMoves;
 
     const int direction = (current_player == playerColor::white) ? 1 : -1; // white moves up, black down
     const int startRank = (current_player == playerColor::white) ? 2 : 7;  // zero indexed!
@@ -622,7 +622,7 @@ vector<chessMotionType> chess::findLegalPawnMoves(boardCoordinateType from)
         boardPositionType start = query_position(from);
         boardPositionType dest = query_position(ahead);
 
-        chessMotionType move = {start, dest, moveType::undefined, moved_by::none, 0};
+        motionType move = {start, dest, moveType::undefined, moved_by::none, 0};
 
         if (check_move_legal(move))
             legalMoves.push_back(move);
@@ -634,7 +634,7 @@ vector<chessMotionType> chess::findLegalPawnMoves(boardCoordinateType from)
         boardCoordinateType twoAhead = {from.file, from.rank + 2 * direction};
         if (validatePosition(twoAhead) && query_position(twoAhead).piece.piece == pieceCode::empty && query_position(ahead).piece.piece == pieceCode::empty)
         {
-            chessMotionType move = {query_position(from), query_position(twoAhead), moveType::undefined, moved_by::none, 0};
+            motionType move = {query_position(from), query_position(twoAhead), moveType::undefined, moved_by::none, 0};
             if (check_move_legal(move))
                 legalMoves.push_back(move);
         }
@@ -649,7 +649,7 @@ vector<chessMotionType> chess::findLegalPawnMoves(boardCoordinateType from)
             pieceType targetPiece = query_position(diag).piece;
             if (targetPiece.piece != pieceCode::empty && targetPiece.color == other_player)
             {
-                chessMotionType move = {query_position(from), query_position(diag), moveType::undefined, moved_by::none, 0};
+                motionType move = {query_position(from), query_position(diag), moveType::undefined, moved_by::none, 0};
                 if (check_move_legal(move))
                     legalMoves.push_back(move);
             }
@@ -660,7 +660,7 @@ vector<chessMotionType> chess::findLegalPawnMoves(boardCoordinateType from)
                 pieceType p = query_position(capturedPawnCoord).piece;
                 if (p.piece == pieceCode::pawn && p.color == other_player)
                 {
-                    chessMotionType move = {query_position(from), query_position(diag), moveType::en_passant, moved_by::none, 0};
+                    motionType move = {query_position(from), query_position(diag), moveType::en_passant, moved_by::none, 0};
                     if (check_move_legal(move))
                         legalMoves.push_back(move);
                 }
@@ -671,9 +671,9 @@ vector<chessMotionType> chess::findLegalPawnMoves(boardCoordinateType from)
     return legalMoves;
 }
 
-vector<chessMotionType> chess::findLegalRookMoves(boardCoordinateType from)
+motionVector chess::findLegalRookMoves(boardCoordinateType from)
 {
-    vector<chessMotionType> legalMoves;
+    motionVector legalMoves;
 
     const std::array<std::pair<int, int>, 4> directions = {{
         {1, 0},  // right
@@ -699,7 +699,7 @@ vector<chessMotionType> chess::findLegalRookMoves(boardCoordinateType from)
             pieceType p = query_position(cur).piece;
             if (p.piece == pieceCode::empty)
             {
-                chessMotionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
+                motionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
                 if (check_move_legal(move))
                     legalMoves.push_back(move);
             }
@@ -707,7 +707,7 @@ vector<chessMotionType> chess::findLegalRookMoves(boardCoordinateType from)
             {
                 if (p.color == other_player)
                 {
-                    chessMotionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
+                    motionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
                     if (check_move_legal(move))
                         legalMoves.push_back(move);
                 }
@@ -719,9 +719,9 @@ vector<chessMotionType> chess::findLegalRookMoves(boardCoordinateType from)
     return legalMoves;
 }
 
-vector<chessMotionType> chess::findLegalKnightMoves(boardCoordinateType from)
+motionVector chess::findLegalKnightMoves(boardCoordinateType from)
 {
-    vector<chessMotionType> legalMoves;
+    motionVector legalMoves;
 
     const std::array<std::pair<int, int>, 8> knightOffsets = {{{1, 2}, {2, 1}, {-1, 2}, {-2, 1}, {1, -2}, {2, -1}, {-1, -2}, {-2, -1}}};
 
@@ -736,7 +736,7 @@ vector<chessMotionType> chess::findLegalKnightMoves(boardCoordinateType from)
             pieceType targetPiece = query_position(to).piece;
             if (targetPiece.piece == pieceCode::empty || targetPiece.color == other_player)
             {
-                chessMotionType move = {query_position(from), query_position(to), moveType::undefined, moved_by::none, 0};
+                motionType move = {query_position(from), query_position(to), moveType::undefined, moved_by::none, 0};
                 if (check_move_legal(move))
                     legalMoves.push_back(move);
             }
@@ -746,9 +746,9 @@ vector<chessMotionType> chess::findLegalKnightMoves(boardCoordinateType from)
     return legalMoves;
 }
 
-vector<chessMotionType> chess::findLegalBishopMoves(boardCoordinateType from)
+motionVector chess::findLegalBishopMoves(boardCoordinateType from)
 {
-    vector<chessMotionType> legalMoves;
+    motionVector legalMoves;
 
     const std::array<std::pair<int, int>, 4> directions = {{
         {1, 1},  // up-right
@@ -774,7 +774,7 @@ vector<chessMotionType> chess::findLegalBishopMoves(boardCoordinateType from)
             pieceType p = query_position(cur).piece;
             if (p.piece == pieceCode::empty)
             {
-                chessMotionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
+                motionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
                 if (check_move_legal(move))
                     legalMoves.push_back(move);
             }
@@ -782,7 +782,7 @@ vector<chessMotionType> chess::findLegalBishopMoves(boardCoordinateType from)
             {
                 if (p.color == other_player)
                 {
-                    chessMotionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
+                    motionType move = {query_position(from), query_position(cur), moveType::undefined, moved_by::none, 0};
                     if (check_move_legal(move))
                         legalMoves.push_back(move);
                 }
@@ -794,13 +794,13 @@ vector<chessMotionType> chess::findLegalBishopMoves(boardCoordinateType from)
     return legalMoves;
 }
 
-vector<chessMotionType> chess::findLegalQueenMoves(boardCoordinateType from)
+motionVector chess::findLegalQueenMoves(boardCoordinateType from)
 {
-    vector<chessMotionType> legalMoves;
+    motionVector legalMoves;
 
     // Combine rook and bishop moves
-    vector<chessMotionType> rookMoves = findLegalRookMoves(from);
-    vector<chessMotionType> bishopMoves = findLegalBishopMoves(from);
+    motionVector rookMoves = findLegalRookMoves(from);
+    motionVector bishopMoves = findLegalBishopMoves(from);
 
     legalMoves.insert(legalMoves.end(), rookMoves.begin(), rookMoves.end());
     legalMoves.insert(legalMoves.end(), bishopMoves.begin(), bishopMoves.end());
@@ -808,9 +808,9 @@ vector<chessMotionType> chess::findLegalQueenMoves(boardCoordinateType from)
     return legalMoves;
 }
 
-vector<chessMotionType> chess::findLegalKingMoves(boardCoordinateType from)
+motionVector chess::findLegalKingMoves(boardCoordinateType from)
 {
-    vector<chessMotionType> legalMoves;
+    motionVector legalMoves;
 
     const std::array<std::pair<int, int>, 8> kingOffsets = {{{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {1, -1}, {-1, -1}}};
 
@@ -825,7 +825,7 @@ vector<chessMotionType> chess::findLegalKingMoves(boardCoordinateType from)
             pieceType targetPiece = query_position(to).piece;
             if (targetPiece.piece == pieceCode::empty || targetPiece.color == other_player)
             {
-                chessMotionType move = {query_position(from), query_position(to), moveType::undefined, moved_by::none, 0};
+                motionType move = {query_position(from), query_position(to), moveType::undefined, moved_by::none, 0};
                 if (check_move_legal(move))
                     legalMoves.push_back(move);
             }
@@ -845,7 +845,7 @@ vector<chessMotionType> chess::findLegalKingMoves(boardCoordinateType from)
                     pieceType rook = query_position({'H', 1}).piece;
                     if (rook.piece == pieceCode::rook && rook.color == playerColor::white)
                     {
-                        chessMotionType m = {query_position({'E', 1}), query_position({'G', 1}), moveType::castling_kingside, moved_by::none, 0};
+                        motionType m = {query_position({'E', 1}), query_position({'G', 1}), moveType::castling_kingside, moved_by::none, 0};
                         if (check_move_legal(m))
                             legalMoves.push_back(m);
                     }
@@ -859,7 +859,7 @@ vector<chessMotionType> chess::findLegalKingMoves(boardCoordinateType from)
                     pieceType rook = query_position({'A', 1}).piece;
                     if (rook.piece == pieceCode::rook && rook.color == playerColor::white)
                     {
-                        chessMotionType m = {query_position({'E', 1}), query_position({'C', 1}), moveType::castling_queenside, moved_by::none, 0};
+                        motionType m = {query_position({'E', 1}), query_position({'C', 1}), moveType::castling_queenside, moved_by::none, 0};
                         if (check_move_legal(m))
                             legalMoves.push_back(m);
                     }
@@ -876,7 +876,7 @@ vector<chessMotionType> chess::findLegalKingMoves(boardCoordinateType from)
                     pieceType rook = query_position({'H', 8}).piece;
                     if (rook.piece == pieceCode::rook && rook.color == playerColor::black)
                     {
-                        chessMotionType m = {query_position({'E', 8}), query_position({'G', 8}), moveType::castling_kingside, moved_by::none, 0};
+                        motionType m = {query_position({'E', 8}), query_position({'G', 8}), moveType::castling_kingside, moved_by::none, 0};
                         if (check_move_legal(m))
                             legalMoves.push_back(m);
                     }
@@ -890,7 +890,7 @@ vector<chessMotionType> chess::findLegalKingMoves(boardCoordinateType from)
                     pieceType rook = query_position({'A', 8}).piece;
                     if (rook.piece == pieceCode::rook && rook.color == playerColor::black)
                     {
-                        chessMotionType m = {query_position({'E', 8}), query_position({'C', 8}), moveType::castling_queenside, moved_by::none, 0};
+                        motionType m = {query_position({'E', 8}), query_position({'C', 8}), moveType::castling_queenside, moved_by::none, 0};
                         if (check_move_legal(m))
                             legalMoves.push_back(m);
                     }
@@ -916,7 +916,7 @@ bool chess::validatePosition(boardCoordinateType coord) const
 
 void chess::listLegalMoves()
 {
-    vector<chessMotionType> legalMoves = findAllLegalMoves();
+    motionVector legalMoves = findAllLegalMoves();
     std::cout << "Legal moves for " << current_player_string() << ":\n";
     for (const auto &move : legalMoves)
     {
@@ -1231,18 +1231,18 @@ double chess::evaluateBoard(void)
     return gameCount;
 }
 
-chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
+motionType chess::smartMoveR(int depth, int alpha, int beta)
 {
 
-    chessMotionType bestMove;
-    vector<chessMotionType> bestMoveList;
-    chessMotionType currentMove;
-    vector<chessMotionType> legalMovesList = findAllLegalMoves();
+    motionType bestMove;
+    motionVector bestMoveList;
+    motionType currentMove;
+    motionVector legalMovesList = findAllLegalMoves();
 
     // // Simple move ordering: captures first (MVV-LVA)
     // auto pieceScore = [&](pieceCode pc)
     // { return getPieceValue(pc); };
-    // auto moveScore = [&](const chessMotionType &m)
+    // auto moveScore = [&](const motionType &m)
     // {
     //     pieceType dst = query_position(m.dest_position.coord).piece;
     //     pieceType src = m.start_position.piece;
@@ -1251,7 +1251,7 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
     //         return 0;
     //     return 1000 + pieceScore(dst.piece) - pieceScore(src.piece);
     // };
-    // std::stable_sort(legalMovesList.begin(), legalMovesList.end(), [&](const chessMotionType &a, const chessMotionType &b)
+    // std::stable_sort(legalMovesList.begin(), legalMovesList.end(), [&](const motionType &a, const motionType &b)
     //                  { return moveScore(a) > moveScore(b); });
 
     bool is_white = (current_player == playerColor::white);
@@ -1360,17 +1360,17 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
     return bestMove;
 }
 
-vector<chessMotionType> chess::getHistory() const
+motionVector chess::getHistory() const
 {
     return gameHistory;
 }
 
-chessMotionType chess::getHistoryLast() const
+motionType chess::getHistoryLast() const
 {
     return gameHistory.back();
 }
 
-chessboard_historyType chess::getPositionHistory() const
+boardVector chess::getPositionHistory() const
 {
     return gamePositionHistory;
 }
@@ -1384,7 +1384,7 @@ void chess::performSmartMove()
     RecFuncCounter = 0;
     skippedBranches = 0;
 
-    chessMotionType currentSmartMove = smartMoveR(minMaxDepth, maxValStart, minValStart);
+    motionType currentSmartMove = smartMoveR(minMaxDepth, maxValStart, minValStart);
     currentSmartMove.moved_by_whom = moved_by::engine;
 
     executeMove(currentSmartMove);
@@ -1572,6 +1572,8 @@ std::string movedByToString(moved_by mb)
         return "human";
     case moved_by::engine:
         return "engine";
+    case moved_by::random:
+        return "random";
     case moved_by::network:
         return "network";
     case moved_by::none:
