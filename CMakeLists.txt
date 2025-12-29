@@ -1,9 +1,14 @@
 # Specify the minimum version for CMake
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.12)
 
 # Project's name
 # this generates the variable PROJECT_NAME
 project(Mate VERSION 1.0)
+
+# Require a modern C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Enable debug symbols - comment these 2 lines if you dont need the debugger!
 set(CMAKE_BUILD_TYPE Debug)
@@ -30,6 +35,6 @@ include_directories("${PROJECT_SOURCE_DIR}")
 
 add_executable(${PROJECT_NAME} ${PROJECT_SOURCE_DIR}/src/main.cpp ${PROJECT_SOURCE_DIR}/src/database.cpp ${PROJECT_SOURCE_DIR}/src/utils.cpp ${PROJECT_SOURCE_DIR}/src/chess.cpp ${PROJECT_SOURCE_DIR}/src/config.cpp)
 
-find_package (SQLite3)
+find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 target_link_libraries (${PROJECT_NAME} ${SQLite3_LIBRARIES})

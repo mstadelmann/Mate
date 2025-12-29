@@ -103,6 +103,21 @@ private:
     vector<chessboardType> gamePositionHistory;
     int RecFuncCounter;
     int skippedBranches;
+    // Castling rights and En Passant
+    bool wCanCastleKs;
+    bool wCanCastleQs;
+    bool bCanCastleKs;
+    bool bCanCastleQs;
+    boardCoordinateType en_passant_target; // invalid when rank==0 or file<'A'/'Z'
+    struct GameStateSnapshot
+    {
+        bool wck;
+        bool wcq;
+        bool bck;
+        bool bcq;
+        boardCoordinateType ep;
+    };
+    vector<GameStateSnapshot> gameStateHistory;
     // Helpers for board access
     inline static int fileIndex(char f) { return f - 'A'; }
     inline static int rankIndex(int r) { return r - 1; }
@@ -114,6 +129,12 @@ private:
     bool black_checked;
     bool white_checkmate;
     bool black_checkmate;
+
+    bool is_square_attacked(boardCoordinateType sq, playerColor byColor) const;
+    void update_castling_rights_on_move(const boardPositionType &startPos, const boardPositionType &destPos);
+    void update_castling_rights_on_capture(const pieceType &captured, const boardCoordinateType &capturedCoord);
+    void push_state_snapshot();
+    void pop_state_snapshot();
 
 public:
     chess();
@@ -136,7 +157,7 @@ public:
     vector<chessMotionType> findLegalBishopMoves(boardCoordinateType);
     vector<chessMotionType> findLegalQueenMoves(boardCoordinateType);
     vector<chessMotionType> findLegalKingMoves(boardCoordinateType);
-    bool validatePosition(boardCoordinateType);
+    bool validatePosition(boardCoordinateType) const;
     bool check_move_legal(chessMotionType);
     void executeMove(chessMotionType);
     bool manualMove();
@@ -151,9 +172,9 @@ public:
     double getPositionEvalFactor(boardPositionType);
     double evaluateBoard(void);
     chessMotionType smartMoveR(int depth, int alpha, int beta);
-    vector<chessMotionType> getHistory();
-    chessMotionType getHistoryLast();
-    chessboard_historyType getPositionHistory();
+    vector<chessMotionType> getHistory() const;
+    chessMotionType getHistoryLast() const;
+    chessboard_historyType getPositionHistory() const;
 
     void performSmartMove();
     void board_editor();

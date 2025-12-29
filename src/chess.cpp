@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <sstream>
 #include <cstdlib>
+#include <algorithm>
 
 chess::chess()
 {
@@ -19,6 +20,13 @@ chess::chess()
     black_checked = false;
     white_checkmate = false;
     black_checkmate = false;
+
+    // Castling rights and en passant default state
+    wCanCastleKs = false;
+    wCanCastleQs = false;
+    bCanCastleKs = false;
+    bCanCastleQs = false;
+    en_passant_target = {'Z', 0};
 
     // Initialize players
     current_player = playerColor::white;
@@ -80,6 +88,8 @@ void chess::init_game()
     emptyMove.type_of_move = moveType::init;
     gameHistory.push_back(emptyMove);
     gamePositionHistory.push_back(chessboard);
+    // Snapshot game state for undo/redo
+    push_state_snapshot();
 }
 
 void chess::set_game_name(const std::string &name)
@@ -167,6 +177,13 @@ void chess::load_starting_position()
 
     place_piece({'E', 1, {pieceCode::king, playerColor::white}});
     place_piece({'E', 8, {pieceCode::king, playerColor::black}});
+
+    // Reset castling rights and en passant for starting position
+    wCanCastleKs = true;
+    wCanCastleQs = true;
+    bCanCastleKs = true;
+    bCanCastleQs = true;
+    en_passant_target = {'Z', 0};
 }
 
 std::string chess::current_player_string() const
@@ -209,12 +226,12 @@ void chess::printCurrentGame()
         }
         else if (rank == 6)
         {
-            std::cout << "     Moves played: " << gameHistory.size() - 1 << "\n";
+            std::cout << "     Moves played: " << (gameHistory.size() > 0 ? (gameHistory.size() - 1) : 0) << "\n";
         }
         else if (rank == 5)
         {
             string last_move_str = "None";
-            if (!gameHistory.empty())
+            if (gameHistory.size() > 1)
             {
                 chessMotionType last_move = gameHistory.back();
                 last_move_str = pieceTypeToChar(last_move.start_position.piece) + " " +
@@ -282,6 +299,7 @@ bool chess::randomMove()
     std::uniform_int_distribution<std::size_t> dist(0, legalMoves.size() - 1);
 
     chessMotionType moveToMake = legalMoves[dist(gen)];
+    moveToMake.moved_by_whom = moved_by::engine;
     executeMove(moveToMake);
     swapPlayers();
     return true;
@@ -398,38 +416,42 @@ void chess::executeMove(chessMotionType moveToExecute)
 {
     // Save current board position to history before making the move
     gamePositionHistory.push_back(chessboard);
+    push_state_snapshot();
 
     boardPositionType startPos = moveToExecute.start_position;
     boardPositionType destPos = moveToExecute.dest_position;
+    pieceType capturedBefore = query_position(destPos.coord).piece;
 
     if (moveToExecute.type_of_move == moveType::castling_kingside)
     {
-        place_piece(startPos.coord, {pieceCode::empty, playerColor::none});
-        place_piece(destPos.coord, {pieceCode::empty, playerColor::none});
-
+        place_piece(startPos.coord, {pieceCode::empty, playerColor::none}); // remove king
         if (current_player == playerColor::white)
         {
-            place_piece({'G', 1}, {pieceCode::king, playerColor::white});
+            place_piece({'H', 1}, {pieceCode::empty, playerColor::none}); // remove rook
             place_piece({'F', 1}, {pieceCode::rook, playerColor::white});
+            place_piece({'G', 1}, {pieceCode::king, playerColor::white});
         }
         else
         {
-            place_piece({'G', 8}, {pieceCode::king, playerColor::black});
+            place_piece({'H', 8}, {pieceCode::empty, playerColor::none}); // remove rook
             place_piece({'F', 8}, {pieceCode::rook, playerColor::black});
+            place_piece({'G', 8}, {pieceCode::king, playerColor::black});
         }
     }
 
     else if (moveToExecute.type_of_move == moveType::castling_queenside)
     {
-        place_piece(startPos.coord, {pieceCode::empty, playerColor::none});
-        place_piece(destPos.coord, {pieceCode::empty, playerColor::none});
+        place_piece(startPos.coord, {pieceCode::empty, playerColor::none}); // remove king
+
         if (current_player == playerColor::white)
         {
+            place_piece({'A', 1}, {pieceCode::empty, playerColor::none}); // remove rook
             place_piece({'C', 1}, {pieceCode::king, playerColor::white});
             place_piece({'D', 1}, {pieceCode::rook, playerColor::white});
         }
         else
         {
+            place_piece({'A', 8}, {pieceCode::empty, playerColor::none}); // remove rook
             place_piece({'C', 8}, {pieceCode::king, playerColor::black});
             place_piece({'D', 8}, {pieceCode::rook, playerColor::black});
         }
@@ -471,6 +493,21 @@ void chess::executeMove(chessMotionType moveToExecute)
         }
     }
 
+    // Update castling rights for captures and movers
+    if (capturedBefore.piece == pieceCode::rook)
+    {
+        update_castling_rights_on_capture(capturedBefore, destPos.coord);
+    }
+    update_castling_rights_on_move(startPos, destPos);
+
+    // Update en passant target
+    en_passant_target = {'Z', 0};
+    if (startPos.piece.piece == pieceCode::pawn && std::abs(destPos.coord.rank - startPos.coord.rank) == 2)
+    {
+        int midRank = (destPos.coord.rank + startPos.coord.rank) / 2;
+        en_passant_target = {startPos.coord.file, midRank};
+    }
+
     // save move history
     gameHistory.push_back(moveToExecute);
     // gamePositionHistory.push_back(chessboard);
@@ -492,6 +529,9 @@ void chess::reverseMove()
     // Restore the previous board position
     chessboard = gamePositionHistory[gamePositionHistory.size() - 1];
     gamePositionHistory.pop_back();
+
+    // Restore castling rights and en passant state
+    pop_state_snapshot();
 
     // Switch current player
     // game.swapPlayers();
@@ -556,108 +596,7 @@ bool chess::currentlyChecked()
     {
         return false; // no king found
     }
-
-    // Check if the current player's king is attacked by an opposing pawn
-    int dir = (current_player == playerColor::white) ? 1 : -1; // squares from which opposing pawns would attack
-    for (int df : {-1, 1})
-    {
-        boardCoordinateType attacker = {static_cast<char>(kingPos.file + df), kingPos.rank + dir};
-        if (validatePosition(attacker))
-        {
-            pieceType p = query_position(attacker).piece;
-            if (p.piece == pieceCode::pawn && p.color == other_player)
-            {
-                return true;
-            }
-        }
-    }
-
-    // Check if the current player's king is attacked by an opposing rook or queen (horizontal and vertical)
-    const std::array<std::pair<int, int>, 4> directions = {{
-        {1, 0},  // right
-        {-1, 0}, // left
-        {0, 1},  // up
-        {0, -1}  // down
-    }};
-
-    for (const auto &d : directions)
-    {
-        int df = d.first;
-        int dr = d.second;
-        boardCoordinateType cur = {kingPos.file, kingPos.rank};
-
-        while (true)
-        {
-            cur.file = static_cast<char>(cur.file + df);
-            cur.rank = cur.rank + dr;
-
-            if (!validatePosition(cur))
-                break;
-
-            pieceType p = query_position(cur).piece;
-            if (p.piece == pieceCode::empty)
-                continue;
-
-            if (p.color == other_player && (p.piece == pieceCode::rook || p.piece == pieceCode::queen))
-                return true;
-
-            break; // blocked by any piece
-        }
-    }
-
-    // Check if the current player's king is attacked by an opposing knight
-    const std::array<std::pair<int, int>, 8> knightOffsets = {{{1, 2}, {2, 1}, {-1, 2}, {-2, 1}, {1, -2}, {2, -1}, {-1, -2}, {-2, -1}}};
-
-    for (const auto &o : knightOffsets)
-    {
-        boardCoordinateType attacker = {
-            static_cast<char>(kingPos.file + o.first),
-            kingPos.rank + o.second};
-
-        if (validatePosition(attacker))
-        {
-            pieceType p = query_position(attacker).piece;
-            if (p.piece == pieceCode::knight && p.color == other_player)
-            {
-                return true;
-            }
-        }
-    }
-
-    // Check if the current player's king is attacked by an opposing bishop or queen (diagonals)
-    const std::array<std::pair<int, int>, 4> diagDirs = {{
-        {1, 1},  // up-right
-        {-1, 1}, // up-left
-        {1, -1}, // down-right
-        {-1, -1} // down-left
-    }};
-
-    for (const auto &d : diagDirs)
-    {
-        int df = d.first;
-        int dr = d.second;
-        boardCoordinateType cur = {kingPos.file, kingPos.rank};
-
-        while (true)
-        {
-            cur.file = static_cast<char>(cur.file + df);
-            cur.rank = cur.rank + dr;
-
-            if (!validatePosition(cur))
-                break;
-
-            pieceType p = query_position(cur).piece;
-            if (p.piece == pieceCode::empty)
-                continue;
-
-            if (p.color == other_player && (p.piece == pieceCode::bishop || p.piece == pieceCode::queen))
-                return true;
-
-            break; // blocked by any piece
-        }
-    }
-
-    return false;
+    return is_square_attacked(kingPos, other_player);
 }
 
 bool chess::check_move_legal(chessMotionType moveToTest)
@@ -713,6 +652,18 @@ vector<chessMotionType> chess::findLegalPawnMoves(boardCoordinateType from)
                 chessMotionType move = {query_position(from), query_position(diag), moveType::undefined, moved_by::none, 0};
                 if (check_move_legal(move))
                     legalMoves.push_back(move);
+            }
+            // En passant capture when target square matches ep target
+            if (en_passant_target.rank != 0 && en_passant_target.file == diag.file && en_passant_target.rank == diag.rank)
+            {
+                boardCoordinateType capturedPawnCoord = {diag.file, from.rank};
+                pieceType p = query_position(capturedPawnCoord).piece;
+                if (p.piece == pieceCode::pawn && p.color == other_player)
+                {
+                    chessMotionType move = {query_position(from), query_position(diag), moveType::en_passant, moved_by::none, 0};
+                    if (check_move_legal(move))
+                        legalMoves.push_back(move);
+                }
             }
         }
     }
@@ -881,10 +832,77 @@ vector<chessMotionType> chess::findLegalKingMoves(boardCoordinateType from)
         }
     }
 
+    // Castling generation (only if not in check)
+    if (!currentlyChecked())
+    {
+        if (current_player == playerColor::white)
+        {
+            // Kingside: E1 -> G1
+            if (wCanCastleKs && query_position({'F', 1}).piece.piece == pieceCode::empty && query_position({'G', 1}).piece.piece == pieceCode::empty)
+            {
+                if (!is_square_attacked({'F', 1}, playerColor::black) && !is_square_attacked({'G', 1}, playerColor::black))
+                {
+                    pieceType rook = query_position({'H', 1}).piece;
+                    if (rook.piece == pieceCode::rook && rook.color == playerColor::white)
+                    {
+                        chessMotionType m = {query_position({'E', 1}), query_position({'G', 1}), moveType::castling_kingside, moved_by::none, 0};
+                        if (check_move_legal(m))
+                            legalMoves.push_back(m);
+                    }
+                }
+            }
+            // Queenside: E1 -> C1 (B1, C1, D1 empty)
+            if (wCanCastleQs && query_position({'D', 1}).piece.piece == pieceCode::empty && query_position({'C', 1}).piece.piece == pieceCode::empty && query_position({'B', 1}).piece.piece == pieceCode::empty)
+            {
+                if (!is_square_attacked({'D', 1}, playerColor::black) && !is_square_attacked({'C', 1}, playerColor::black))
+                {
+                    pieceType rook = query_position({'A', 1}).piece;
+                    if (rook.piece == pieceCode::rook && rook.color == playerColor::white)
+                    {
+                        chessMotionType m = {query_position({'E', 1}), query_position({'C', 1}), moveType::castling_queenside, moved_by::none, 0};
+                        if (check_move_legal(m))
+                            legalMoves.push_back(m);
+                    }
+                }
+            }
+        }
+        else if (current_player == playerColor::black)
+        {
+            // Kingside: E8 -> G8
+            if (bCanCastleKs && query_position({'F', 8}).piece.piece == pieceCode::empty && query_position({'G', 8}).piece.piece == pieceCode::empty)
+            {
+                if (!is_square_attacked({'F', 8}, playerColor::white) && !is_square_attacked({'G', 8}, playerColor::white))
+                {
+                    pieceType rook = query_position({'H', 8}).piece;
+                    if (rook.piece == pieceCode::rook && rook.color == playerColor::black)
+                    {
+                        chessMotionType m = {query_position({'E', 8}), query_position({'G', 8}), moveType::castling_kingside, moved_by::none, 0};
+                        if (check_move_legal(m))
+                            legalMoves.push_back(m);
+                    }
+                }
+            }
+            // Queenside: E8 -> C8
+            if (bCanCastleQs && query_position({'D', 8}).piece.piece == pieceCode::empty && query_position({'C', 8}).piece.piece == pieceCode::empty && query_position({'B', 8}).piece.piece == pieceCode::empty)
+            {
+                if (!is_square_attacked({'D', 8}, playerColor::white) && !is_square_attacked({'C', 8}, playerColor::white))
+                {
+                    pieceType rook = query_position({'A', 8}).piece;
+                    if (rook.piece == pieceCode::rook && rook.color == playerColor::black)
+                    {
+                        chessMotionType m = {query_position({'E', 8}), query_position({'C', 8}), moveType::castling_queenside, moved_by::none, 0};
+                        if (check_move_legal(m))
+                            legalMoves.push_back(m);
+                    }
+                }
+            }
+        }
+    }
+
     return legalMoves;
 }
 
-bool chess::validatePosition(boardCoordinateType coord)
+bool chess::validatePosition(boardCoordinateType coord) const
 {
     if ((coord.rank >= 1) && (coord.rank <= 8) && (coord.file >= 'A') && (coord.file <= 'H'))
     {
@@ -914,7 +932,9 @@ void chess::listLegalMoves()
 void chess::listMoveHistory()
 {
     std::cout << "Move history:\n";
-    for (size_t i = 0; i < gameHistory.size(); ++i)
+    // Skip the initial placeholder move if present
+    size_t start = gameHistory.size() > 0 && gameHistory.front().type_of_move == moveType::init ? 1 : 0;
+    for (size_t i = start; i < gameHistory.size(); ++i)
     {
         const auto &move = gameHistory[i];
         std::cout << i + 1 << ". "
@@ -979,6 +999,164 @@ string chess::pieceTypeToChar(pieceType pc)
     {
         return "";
     }
+}
+
+bool chess::is_square_attacked(boardCoordinateType sq, playerColor byColor) const
+{
+    if (!validatePosition(sq))
+        return false;
+
+    // Pawn attacks
+    int dir = (byColor == playerColor::white) ? 1 : -1;
+    for (int df : {-1, 1})
+    {
+        boardCoordinateType p = {static_cast<char>(sq.file + df), sq.rank - dir};
+        if (p.rank >= 1 && p.rank <= 8 && p.file >= 'A' && p.file <= 'H')
+        {
+            pieceType pc = at(p);
+            if (pc.piece == pieceCode::pawn && pc.color == byColor)
+                return true;
+        }
+    }
+
+    // Knights
+    const std::array<std::pair<int, int>, 8> knightOffsets = {{{1, 2}, {2, 1}, {-1, 2}, {-2, 1}, {1, -2}, {2, -1}, {-1, -2}, {-2, -1}}};
+    for (const auto &o : knightOffsets)
+    {
+        boardCoordinateType p = {static_cast<char>(sq.file + o.first), sq.rank + o.second};
+        if (p.rank >= 1 && p.rank <= 8 && p.file >= 'A' && p.file <= 'H')
+        {
+            pieceType pc = at(p);
+            if (pc.piece == pieceCode::knight && pc.color == byColor)
+                return true;
+        }
+    }
+
+    // Kings (adjacent)
+    const std::array<std::pair<int, int>, 8> kingAdj = {{{1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {1, -1}, {-1, -1}}};
+    for (const auto &o : kingAdj)
+    {
+        boardCoordinateType p = {static_cast<char>(sq.file + o.first), sq.rank + o.second};
+        if (p.rank >= 1 && p.rank <= 8 && p.file >= 'A' && p.file <= 'H')
+        {
+            pieceType pc = at(p);
+            if (pc.piece == pieceCode::king && pc.color == byColor)
+                return true;
+        }
+    }
+
+    // Rook/Queen lines
+    const std::array<std::pair<int, int>, 4> lines = {{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
+    for (const auto &d : lines)
+    {
+        boardCoordinateType p = sq;
+        while (true)
+        {
+            p.file = static_cast<char>(p.file + d.first);
+            p.rank = p.rank + d.second;
+            if (!(p.rank >= 1 && p.rank <= 8 && p.file >= 'A' && p.file <= 'H'))
+                break;
+            pieceType pc = at(p);
+            if (pc.piece == pieceCode::empty)
+                continue;
+            if (pc.color == byColor && (pc.piece == pieceCode::rook || pc.piece == pieceCode::queen))
+                return true;
+            break;
+        }
+    }
+
+    // Bishop/Queen diagonals
+    const std::array<std::pair<int, int>, 4> diags = {{{1, 1}, {-1, 1}, {1, -1}, {-1, -1}}};
+    for (const auto &d : diags)
+    {
+        boardCoordinateType p = sq;
+        while (true)
+        {
+            p.file = static_cast<char>(p.file + d.first);
+            p.rank = p.rank + d.second;
+            if (!(p.rank >= 1 && p.rank <= 8 && p.file >= 'A' && p.file <= 'H'))
+                break;
+            pieceType pc = at(p);
+            if (pc.piece == pieceCode::empty)
+                continue;
+            if (pc.color == byColor && (pc.piece == pieceCode::bishop || pc.piece == pieceCode::queen))
+                return true;
+            break;
+        }
+    }
+    return false;
+}
+
+void chess::update_castling_rights_on_move(const boardPositionType &startPos, const boardPositionType &destPos)
+{
+    if (startPos.piece.piece == pieceCode::king)
+    {
+        if (startPos.piece.color == playerColor::white)
+        {
+            wCanCastleKs = false;
+            wCanCastleQs = false;
+        }
+        else if (startPos.piece.color == playerColor::black)
+        {
+            bCanCastleKs = false;
+            bCanCastleQs = false;
+        }
+    }
+    else if (startPos.piece.piece == pieceCode::rook)
+    {
+        if (startPos.piece.color == playerColor::white)
+        {
+            if (startPos.coord.file == 'H' && startPos.coord.rank == 1)
+                wCanCastleKs = false;
+            if (startPos.coord.file == 'A' && startPos.coord.rank == 1)
+                wCanCastleQs = false;
+        }
+        else if (startPos.piece.color == playerColor::black)
+        {
+            if (startPos.coord.file == 'H' && startPos.coord.rank == 8)
+                bCanCastleKs = false;
+            if (startPos.coord.file == 'A' && startPos.coord.rank == 8)
+                bCanCastleQs = false;
+        }
+    }
+}
+
+void chess::update_castling_rights_on_capture(const pieceType &captured, const boardCoordinateType &capturedCoord)
+{
+    if (captured.piece != pieceCode::rook)
+        return;
+    if (captured.color == playerColor::white)
+    {
+        if (capturedCoord.file == 'H' && capturedCoord.rank == 1)
+            wCanCastleKs = false;
+        if (capturedCoord.file == 'A' && capturedCoord.rank == 1)
+            wCanCastleQs = false;
+    }
+    else if (captured.color == playerColor::black)
+    {
+        if (capturedCoord.file == 'H' && capturedCoord.rank == 8)
+            bCanCastleKs = false;
+        if (capturedCoord.file == 'A' && capturedCoord.rank == 8)
+            bCanCastleQs = false;
+    }
+}
+
+void chess::push_state_snapshot()
+{
+    gameStateHistory.push_back({wCanCastleKs, wCanCastleQs, bCanCastleKs, bCanCastleQs, en_passant_target});
+}
+
+void chess::pop_state_snapshot()
+{
+    if (gameStateHistory.empty())
+        return;
+    GameStateSnapshot s = gameStateHistory.back();
+    gameStateHistory.pop_back();
+    wCanCastleKs = s.wck;
+    wCanCastleQs = s.wcq;
+    bCanCastleKs = s.bck;
+    bCanCastleQs = s.bcq;
+    en_passant_target = s.ep;
 }
 
 int chess::getPieceValue(pieceCode piece)
@@ -1061,6 +1239,21 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
     chessMotionType currentMove;
     vector<chessMotionType> legalMovesList = findAllLegalMoves();
 
+    // // Simple move ordering: captures first (MVV-LVA)
+    // auto pieceScore = [&](pieceCode pc)
+    // { return getPieceValue(pc); };
+    // auto moveScore = [&](const chessMotionType &m)
+    // {
+    //     pieceType dst = query_position(m.dest_position.coord).piece;
+    //     pieceType src = m.start_position.piece;
+    //     bool isCap = (m.type_of_move == moveType::en_passant) || (dst.piece != pieceCode::empty && dst.color == other_player);
+    //     if (!isCap)
+    //         return 0;
+    //     return 1000 + pieceScore(dst.piece) - pieceScore(src.piece);
+    // };
+    // std::stable_sort(legalMovesList.begin(), legalMovesList.end(), [&](const chessMotionType &a, const chessMotionType &b)
+    //                  { return moveScore(a) > moveScore(b); });
+
     bool is_white = (current_player == playerColor::white);
     bool is_black = (current_player == playerColor::black);
 
@@ -1097,7 +1290,7 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
     }
     else
     {
-        for (uint i = 0; i < legalMovesList.size(); i++)
+        for (size_t i = 0; i < legalMovesList.size(); i++)
         {
             executeMove(legalMovesList[i]);
             swapPlayers();
@@ -1167,17 +1360,17 @@ chessMotionType chess::smartMoveR(int depth, int alpha, int beta)
     return bestMove;
 }
 
-vector<chessMotionType> chess::getHistory()
+vector<chessMotionType> chess::getHistory() const
 {
     return gameHistory;
 }
 
-chessMotionType chess::getHistoryLast()
+chessMotionType chess::getHistoryLast() const
 {
     return gameHistory.back();
 }
 
-chessboard_historyType chess::getPositionHistory()
+chessboard_historyType chess::getPositionHistory() const
 {
     return gamePositionHistory;
 }
@@ -1192,6 +1385,7 @@ void chess::performSmartMove()
     skippedBranches = 0;
 
     chessMotionType currentSmartMove = smartMoveR(minMaxDepth, maxValStart, minValStart);
+    currentSmartMove.moved_by_whom = moved_by::engine;
 
     executeMove(currentSmartMove);
     swapPlayers();

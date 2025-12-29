@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
-void store_to_DB(chess currentGame)
+void store_to_DB(const chess &currentGame)
 {
 
     sqlite3 *db;
