@@ -172,7 +172,7 @@ public:
     int getPieceValue(pieceCode);
     double getPositionEvalFactor(boardPositionType);
     double evaluateBoard(void);
-    motionType smartMoveR(int depth, int alpha, int beta);
+    motionType smartMoveR(int depth, int alpha, int beta, moveType bestMoveType = moveType::undefined);
     motionVector getHistory() const;
     motionType getHistoryLast() const;
     boardVector getPositionHistory() const;
