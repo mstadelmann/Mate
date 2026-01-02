@@ -236,6 +236,11 @@ int run_network_game(chess &game, NetConnection &conn)
 
     game.load_starting_position();
     game.init_game();
+    // Assign player names so the board shows current player with name
+    if (conn.myPlaysWhite)
+        game.set_player_names(conn.myName, conn.peerName);
+    else
+        game.set_player_names(conn.peerName, conn.myName);
 
     // White moves first: server plays White
     while (true)

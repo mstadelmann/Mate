@@ -73,6 +73,10 @@ bool chess::check_board_valid()
 
 void chess::init_game()
 {
+    // Reset any network player names when starting a new game
+    white_player_name.clear();
+    black_player_name.clear();
+
     time_t now = time(nullptr);
     tm *ltm = localtime(&now);
     std::ostringstream oss;
@@ -91,6 +95,12 @@ void chess::init_game()
     gamePositionHistory.push_back(chessboard);
     // Snapshot game state for undo/redo
     push_state_snapshot();
+}
+
+void chess::set_player_names(const std::string &whiteName, const std::string &blackName)
+{
+    white_player_name = whiteName;
+    black_player_name = blackName;
 }
 
 void chess::set_game_name(const std::string &name)
@@ -223,7 +233,16 @@ void chess::printCurrentGame()
         std::cout << "| " << rank + 1;
         if (rank == 7)
         {
-            std::cout << "     Current Player: " << current_player_string() << "\n";
+            std::string name_suffix;
+            if (current_player == playerColor::white && !white_player_name.empty())
+            {
+                name_suffix = " (" + white_player_name + ")";
+            }
+            else if (current_player == playerColor::black && !black_player_name.empty())
+            {
+                name_suffix = " (" + black_player_name + ")";
+            }
+            std::cout << "     Current Player: " << current_player_string() << name_suffix << "\n";
         }
         else if (rank == 6)
         {

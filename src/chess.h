@@ -99,6 +99,9 @@ private:
     boardType chessboard;
     playerColor current_player;
     playerColor other_player;
+    // Optional player names for white/black; empty when not in network mode
+    string white_player_name;
+    string black_player_name;
     bool replace_black_pawn;
     motionVector gameHistory;
     boardVector gamePositionHistory;
@@ -142,6 +145,7 @@ public:
     ~chess();
     void init_game();
     void set_game_name(const std::string &name);
+    void set_player_names(const std::string &whiteName, const std::string &blackName);
     void load_starting_position();
     void printCurrentGame();
     string current_player_string() const;
