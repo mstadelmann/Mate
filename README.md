@@ -6,6 +6,8 @@ Mate is a terminal chess engine and board editor with an interactive menu-driven
 
 It is designed to be fast to try, easy to play, and hackable for experimentation.
 
+![Board preview](assets/board.png)
+
 ## Features
 
 - New game and free play on any position
