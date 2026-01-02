@@ -940,7 +940,7 @@ bool chess::validatePosition(boardCoordinateType coord) const
 void chess::listLegalMoves()
 {
     motionVector legalMoves = findAllLegalMoves();
-    std::cout << "Legal moves for " << current_player_string() << ":\n";
+    std::cout << "Listing all legal moves for " << current_player_string() << ":\n";
     for (const auto &move : legalMoves)
     {
         std::cout << pieceTypeToChar(move.start_position.piece) << " at "

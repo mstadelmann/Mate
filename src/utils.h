@@ -36,16 +36,16 @@ enum class MainMenuChoice
 
 MainMenuChoice MainMenu(bool print_menu = true);
 
-#define GAME_MENU_ITEMS(X)                  \
-    X(ManualMove, "Enter Manual Move")      \
-    X(SmartMove, "Run Smart Move")          \
-    X(RandomMove, "Run Random Move")        \
-    X(Undo, "Undo Last Move")               \
-    X(ListAllMoves, "List all legal moves") \
-    X(ShowHistory, "List game history")     \
-    X(WriteDB, "Write DB")                  \
-    X(Help, "Show this help menu")          \
-    X(Quit, "Quit Game and return to Main Menu")
+#define GAME_MENU_ITEMS(X)                      \
+    X(ManualMove, " m: Enter manual move")      \
+    X(SmartMove, " s: Run smart move")          \
+    X(RandomMove, " r: Run random move")        \
+    X(Undo, " u: Undo last move")               \
+    X(ListAllMoves, " a: List all legal moves") \
+    X(ShowHistory, " l: Show game history")     \
+    X(WriteDB, " w: Write to database")         \
+    X(Help, " h: Show help menu")               \
+    X(Quit, " q: Quit game and return to main menu")
 
 enum class GameMenuChoice
 {

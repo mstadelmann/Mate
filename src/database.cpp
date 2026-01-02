@@ -2,6 +2,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include "utils.h"
 
 // Forward declaration for helper usage
 static pieceType decode_square_code(const std::string &code);
@@ -29,7 +30,7 @@ namespace
             sqlite3_free(zErrMsg);
             return false;
         }
-        fprintf(stdout, "Moves table ready\n");
+        debugMessage("Moves table ready\n");
         return true;
     }
 
@@ -62,7 +63,8 @@ namespace
             sqlite3_free(zErrMsg);
             return false;
         }
-        fprintf(stdout, "BOARD table ready\n");
+        debugMessage("BOARD table ready\n");
+
         return true;
     }
 
@@ -154,7 +156,7 @@ namespace
                 dest_piece.c_str(),
                 board_count);
 
-            std::cout << insert_sql << std::endl;
+            debugMessage("Inserting move: " + std::string(insert_sql) + "\n");
             int rc = sqlite3_exec(db, insert_sql, nullptr, nullptr, &zErrMsg);
             if (rc != SQLITE_OK)
             {
@@ -164,7 +166,7 @@ namespace
             }
             else
             {
-                fprintf(stdout, "Record added successfully\n");
+                debugMessage("Record added successfully\n");
             }
             sqlite3_free(insert_sql);
         }
@@ -262,7 +264,7 @@ namespace
             }
             else
             {
-                fprintf(stdout, "BOARD snapshot added (ID=%d)\n", static_cast<int>(idx));
+                debugMessage("BOARD snapshot added (ID=" + std::to_string(static_cast<int>(idx)) + ")\n");
             }
         }
     }
@@ -481,7 +483,7 @@ void store_to_DB(const chess &currentGame)
             sqlite3_close(db);
         return;
     }
-    fprintf(stdout, "Opened database successfully\n");
+    debugMessage("Database opened successfully.\n");
 
     if (!ensure_moves_table(db) || !ensure_board_table(db))
     {

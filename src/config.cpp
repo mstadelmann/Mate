@@ -273,7 +273,7 @@ int maxValStart = -100000;
 int minValStart = 100000;
 int minMaxDepth = 3;
 bool use_AB_pruning = true;
-bool enable_debug_messages = true;
+bool enable_debug_messages = false;
 std::string db_path = "games.db";
 
 static std::string getBinaryDir()

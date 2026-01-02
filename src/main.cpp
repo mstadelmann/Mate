@@ -69,12 +69,15 @@ void game_loop(chess &game)
         switch (selection)
         {
         case GameMenuChoice::ManualMove:
+            cout << "Entering manual move..." << endl;
             game.manualMove();
             break;
         case GameMenuChoice::SmartMove:
+            cout << "Performing smart move..." << endl;
             game.performSmartMove();
             break;
         case GameMenuChoice::RandomMove:
+            cout << "Performing random move..." << endl;
             game.randomMove();
             break;
         case GameMenuChoice::Undo:
@@ -100,7 +103,7 @@ void game_loop(chess &game)
             cout << "Quitting game and returning to main menu..." << endl;
             return;
         default:
-            cout << "Invalid selection. Type 10 to list possible options." << endl;
+            cout << "Invalid command. Available: m/M, s, r, u, a, l, w, q." << endl;
             break;
         }
     }
