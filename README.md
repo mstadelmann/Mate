@@ -45,6 +45,8 @@ cmake --build buildCLI --config Debug -j6
 
 On first run, `config.json` is created next to the binary in `bin/` if missing.
 
+Note: The included binary in `bin/` was compiled on Ubuntu 25.10. If you are on a different distribution, version, architecture, or libc, please rebuild from source using the steps above.
+
 ## Main Menu
 
 - Start new game: loads the standard chess starting position
