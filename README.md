@@ -1,6 +1,6 @@
 # Mate
 
-Mate is a terminal chess engine and board editor with an interactive menu-driven UI, a simple evaluation-based engine (minimax with optional alpha–beta pruning), and SQLite persistence for saving and loading games and positions.
+Mate is a terminal chess engine and board editor with an interactive menu-driven UI, a simple evaluation-based engine (minimax with optional alpha–beta pruning), SQLite persistence, and network play with chat.
 
 It is designed to be fast to try, easy to play, and hackable for experimentation.
 
@@ -15,6 +15,7 @@ It is designed to be fast to try, easy to play, and hackable for experimentation
 - Browse and load games from the database interactively
 - Configurable evaluation and engine depth via `config.json`
 - Unicode board rendering in the terminal
+- Network play: host/join over TCP, player names on board, real-time chat
 
 ## Build & Run
 
@@ -48,7 +49,7 @@ On first run, `config.json` is created next to the binary in `bin/` if missing.
 - Play with current board: starts a game from whatever position is currently loaded
 - Create custom board position: opens the Board Editor (see below)
 - Load game from database: lists saved games and lets you browse positions
-- Start network game: listed for future use (not implemented)
+- Start network game: host a server or join one by IP/hostname
 - Quit: exits the program
 
 ## Game Menu (during a game)
@@ -105,6 +106,7 @@ Automatically written and loaded at startup. Key options:
 - `minMaxDepth`: search depth for smart moves
 - `use_AB_pruning`: enable/disable alpha–beta pruning
 - `enable_debug_messages`: print extra debug output
+- `network_port`: TCP port for hosting/joining network games (default: 5555)
 - Piece-square tables: `pawnEvalWhite/Black`, `knightEvalWhite/Black`, `bishopEvalWhite/Black`, `rookEvalWhite/Black`, `evalQueenWhite/Black`, `kingEvalWhite/Black`
 
 Edit `bin/config.json`, then rerun Mate to apply changes.
@@ -115,14 +117,37 @@ Edit `bin/config.json`, then rerun Mate to apply changes.
 - Unicode rendering may vary by terminal; black pawns may be drawn as a solid circle
 - If the DB already contains a game with the same name, saving will overwrite entries for that game
 
+
+## Network Play
+
+Host a game (server):
+
+1. In Main Menu, choose Start network game → Host
+2. Enter your display name and choose side (White/Black)
+3. Optionally set a server password (press Enter for none)
+4. The server announces `OPEN` (no password) or `LOCKED` (password required)
+5. Share your host IP/hostname and the configured port with your opponent
+
+Join a game (client):
+
+1. In Main Menu, choose Start network game → Join
+2. Enter the server host (IP/hostname) and your display name
+3. If the server is `LOCKED`, you’ll be prompted for the password
+4. On success, the game starts with player names shown on the board
+
+In-game commands (network):
+
+- Moves: enter start and end squares like `E2 E4`
+- `a`: list all legal moves
+- `l`: show game history
+- `w`: write the current game to the database
+- `h`: show network help
+- `c`: send a chat message (works both while playing and while waiting)
+- `q`: quit the game
+
+
 ## Troubleshooting
 
 - Ensure `libsqlite3-dev` (headers and library) is installed
 - If `config.json` is missing or malformed, Mate regenerates defaults
 - Run with a modern terminal that supports UTF-8 for best board rendering
-
-## Roadmap
-
-- Network play support (menu placeholder)
-- Additional search heuristics and move ordering
-- PGN import/export
