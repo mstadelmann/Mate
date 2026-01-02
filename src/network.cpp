@@ -4,6 +4,7 @@
 #include <sstream>
 #include <vector>
 #include <cstring>
+#include "database.h"
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -48,7 +49,7 @@ namespace
                 break;
             out.push_back(ch);
             if (out.size() > 1024)
-                return false; // sanity limit
+                return false;
         }
         return true;
     }
@@ -85,6 +86,17 @@ namespace
         }
         return false;
     }
+
+    void print_network_help()
+    {
+        cout << "\nNetwork Game Commands:" << endl;
+        cout << " - Enter a move like: E2 E4" << endl;
+        cout << " - a: List all legal moves" << endl;
+        cout << " - l: Show game history" << endl;
+        cout << " - w: Write to database" << endl;
+        cout << " - q: Quit game" << endl;
+        cout << endl;
+    }
 }
 
 bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhite, NetConnection &outConn)
@@ -119,7 +131,7 @@ bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhit
     if (cliSock < 0)
         return false;
 
-    // Announce our name and color, then expect JOIN <name> or QUIT
+    // Announce name and color, then expect JOIN <name> or QUIT
     if (!send_line(cliSock, string("NAME ") + username + " " + (hostPlaysWhite ? "WHITE" : "BLACK")))
     {
         ::close(cliSock);
@@ -234,25 +246,24 @@ int run_network_game(chess &game, NetConnection &conn)
 
     game.load_starting_position();
     game.init_game();
-    // Assign player names so the board shows current player with name
     if (conn.myPlaysWhite)
         game.set_player_names(conn.myName, conn.peerName);
     else
         game.set_player_names(conn.peerName, conn.myName);
 
-    // White moves first: server plays White
+    // Show available commands at the start of a network game
+    print_network_help();
     while (true)
     {
         game.detectCheckmate();
         game.printCurrentGame();
 
         bool myTurnIsWhite = conn.myPlaysWhite;
-        // Determine whose turn based on game state
         bool myTurn = myTurnIsWhite ? (game.current_player_string() == "white") : (game.current_player_string() == "black");
 
         if (myTurn)
         {
-            cout << "Enter move (e.g. E2 E4) or 'q' to quit: " << std::flush;
+            cout << "Enter move (e.g. E2 E4) or 'q' (help: 'h'): " << std::flush;
             string s, e;
             std::cin >> s;
             if (s == "q" || s == "Q")
@@ -261,8 +272,33 @@ int run_network_game(chess &game, NetConnection &conn)
                 cout << "You quit the game." << endl;
                 break;
             }
+            if (s.size() == 1)
+            {
+                char c = static_cast<char>(std::tolower(static_cast<unsigned char>(s[0])));
+                if (c == 'a')
+                {
+                    game.listLegalMoves();
+                    continue;
+                }
+                else if (c == 'l')
+                {
+                    cout << "Listing game history..." << endl;
+                    game.listMoveHistory();
+                    continue;
+                }
+                else if (c == 'w')
+                {
+                    cout << "Writing to database..." << endl;
+                    store_to_DB(game);
+                    continue;
+                }
+                else if (c == 'h')
+                {
+                    print_network_help();
+                    continue;
+                }
+            }
             std::cin >> e;
-
             if (!apply_move_string(game, s, e))
             {
                 cout << "Illegal move. Try again." << endl;
