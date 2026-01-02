@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <sys/select.h>
 
 using std::cout;
 using std::endl;
@@ -309,103 +310,263 @@ int run_network_game(chess &game, NetConnection &conn)
         if (myTurn)
         {
             cout << "Enter move (e.g. E2 E4) or 'q' (help: 'h', chat: 'c'): " << std::flush;
-            string s, e;
-            std::cin >> s;
-            if (s == "q" || s == "Q")
+            bool moveSent = false;
+            bool terminate = false;
+            while (!moveSent && !terminate)
             {
-                (void)send_line(conn.sock, "QUIT");
-                cout << "You quit the game." << endl;
-                break;
-            }
-            if (s.size() == 1)
-            {
-                char c = static_cast<char>(std::tolower(static_cast<unsigned char>(s[0])));
-                if (c == 'a')
+                fd_set rfds;
+                FD_ZERO(&rfds);
+                FD_SET(conn.sock, &rfds);
+                FD_SET(STDIN_FILENO, &rfds);
+                int nfds = std::max(conn.sock, STDIN_FILENO) + 1;
+                int rv = ::select(nfds, &rfds, nullptr, nullptr, nullptr);
+                if (rv < 0)
                 {
-                    game.listLegalMoves();
-                    continue;
+                    cout << "Select error. Terminating." << endl;
+                    terminate = true;
+                    break;
                 }
-                else if (c == 'l')
+
+                // Handle incoming network messages immediately (e.g., chat)
+                if (FD_ISSET(conn.sock, &rfds))
                 {
-                    cout << "Listing game history..." << endl;
-                    game.listMoveHistory();
-                    continue;
-                }
-                else if (c == 'w')
-                {
-                    cout << "Writing to database..." << endl;
-                    store_to_DB(game);
-                    continue;
-                }
-                else if (c == 'h')
-                {
-                    print_network_help();
-                    continue;
-                }
-                else if (c == 'c')
-                {
-                    cout << "Enter message: " << std::flush;
-                    std::string msg;
-                    std::getline(std::cin >> std::ws, msg);
-                    if (!msg.empty())
+                    string line;
+                    if (!recv_line(conn.sock, line))
                     {
-                        if (!send_line(conn.sock, std::string("CHAT ") + msg))
+                        cout << "Connection closed." << endl;
+                        terminate = true;
+                        break;
+                    }
+                    if (line == "QUIT")
+                    {
+                        cout << "Opponent quit the game." << endl;
+                        terminate = true;
+                        break;
+                    }
+                    if (line.rfind("CHAT ", 0) == 0)
+                    {
+                        cout << "\nMessage from " << conn.peerName << ": " << line.substr(5) << endl;
+                        continue;
+                    }
+                    if (line.rfind("MOVE ", 0) == 0)
+                    {
+                        // Opponent moved during our turn -> protocol error
+                        cout << "Protocol error: move from opponent during your turn. Terminating." << endl;
+                        terminate = true;
+                        break;
+                    }
+                    else
+                    {
+                        cout << "Protocol error. Terminating." << endl;
+                        terminate = true;
+                        break;
+                    }
+                }
+
+                // Handle user input for commands/moves
+                if (FD_ISSET(STDIN_FILENO, &rfds))
+                {
+                    std::string input;
+                    if (!std::getline(std::cin, input))
+                    {
+                        continue;
+                    }
+                    std::istringstream iss(input);
+                    std::string tok1;
+                    iss >> tok1;
+                    if (tok1.empty())
+                    {
+                        continue;
+                    }
+                    if (tok1.size() == 1)
+                    {
+                        char c = static_cast<char>(std::tolower(static_cast<unsigned char>(tok1[0])));
+                        if (c == 'q')
                         {
-                            cout << "Network error sending chat." << endl;
+                            (void)send_line(conn.sock, "QUIT");
+                            cout << "You quit the game." << endl;
+                            terminate = true;
                             break;
                         }
-                        cout << "Sent." << endl;
+                        else if (c == 'a')
+                        {
+                            game.listLegalMoves();
+                            cout << "Enter move or 'q' (help: 'h', chat: 'c'): " << std::flush;
+                            continue;
+                        }
+                        else if (c == 'l')
+                        {
+                            cout << "Listing game history..." << endl;
+                            game.listMoveHistory();
+                            cout << "Enter move or 'q' (help: 'h', chat: 'c'): " << std::flush;
+                            continue;
+                        }
+                        else if (c == 'w')
+                        {
+                            cout << "Writing to database..." << endl;
+                            store_to_DB(game);
+                            cout << "Enter move or 'q' (help: 'h', chat: 'c'): " << std::flush;
+                            continue;
+                        }
+                        else if (c == 'h')
+                        {
+                            print_network_help();
+                            cout << "Enter move or 'q' (help: 'h', chat: 'c'): " << std::flush;
+                            continue;
+                        }
+                        else if (c == 'c')
+                        {
+                            cout << "Enter message: " << std::flush;
+                            std::string msg;
+                            std::getline(std::cin, msg);
+                            if (!msg.empty())
+                            {
+                                if (!send_line(conn.sock, std::string("CHAT ") + msg))
+                                {
+                                    cout << "Network error sending chat." << endl;
+                                    terminate = true;
+                                    break;
+                                }
+                                cout << "Sent." << endl;
+                            }
+                            cout << "Enter move or 'q' (help: 'h', chat: 'c'): " << std::flush;
+                            continue;
+                        }
+                        // Fall through to treat as start field if not a known single-letter command
                     }
-                    continue;
+
+                    std::string tok2;
+                    iss >> tok2;
+                    if (tok2.empty())
+                    {
+                        cout << "Please enter a move like: E2 E4" << endl;
+                        cout << "Enter move or 'q' (help: 'h', chat: 'c'): " << std::flush;
+                        continue;
+                    }
+
+                    if (!apply_move_string(game, tok1, tok2))
+                    {
+                        cout << "Illegal move. Try again." << endl;
+                        cout << "Enter move or 'q' (help: 'h', chat: 'c'): " << std::flush;
+                        continue;
+                    }
+                    if (!send_line(conn.sock, string("MOVE ") + tok1 + " " + tok2))
+                    {
+                        cout << "Network error sending move." << endl;
+                        terminate = true;
+                        break;
+                    }
+                    moveSent = true;
                 }
             }
-            std::cin >> e;
-            if (!apply_move_string(game, s, e))
-            {
-                cout << "Illegal move. Try again." << endl;
-                continue;
-            }
-            if (!send_line(conn.sock, string("MOVE ") + s + " " + e))
-            {
-                cout << "Network error sending move." << endl;
+            if (terminate)
                 break;
-            }
         }
         else
         {
             cout << "Waiting for opponent move..." << endl;
-            string line;
-            if (!recv_line(conn.sock, line))
+            // Allow sending chat while waiting by monitoring both socket and stdin
+            bool terminated = false;
+            while (!terminated)
             {
-                cout << "Connection closed." << endl;
-                break;
-            }
-            if (line == "QUIT")
-            {
-                cout << "Opponent quit the game." << endl;
-                break;
-            }
-            if (line.rfind("CHAT ", 0) == 0)
-            {
-                cout << "Message from " << conn.peerName << ": " << line.substr(5) << endl;
-                continue;
-            }
-            if (line.rfind("MOVE ", 0) == 0)
-            {
-                std::istringstream iss(line.substr(5));
-                string s, e;
-                iss >> s >> e;
-                if (!apply_move_string(game, s, e))
+                fd_set rfds;
+                FD_ZERO(&rfds);
+                FD_SET(conn.sock, &rfds);
+                FD_SET(STDIN_FILENO, &rfds);
+                int nfds = std::max(conn.sock, STDIN_FILENO) + 1;
+                int rv = ::select(nfds, &rfds, nullptr, nullptr, nullptr);
+                if (rv < 0)
                 {
-                    cout << "Received illegal move. Terminating." << endl;
+                    cout << "Select error. Terminating." << endl;
+                    terminated = true;
                     break;
                 }
+
+                // Incoming network message
+                if (FD_ISSET(conn.sock, &rfds))
+                {
+                    string line;
+                    if (!recv_line(conn.sock, line))
+                    {
+                        cout << "Connection closed." << endl;
+                        terminated = true;
+                        break;
+                    }
+                    if (line == "QUIT")
+                    {
+                        cout << "Opponent quit the game." << endl;
+                        terminated = true;
+                        break;
+                    }
+                    if (line.rfind("CHAT ", 0) == 0)
+                    {
+                        cout << "\nMessage from " << conn.peerName << ": " << line.substr(5) << endl;
+                        // Keep waiting for opponent's move
+                        continue;
+                    }
+                    if (line.rfind("MOVE ", 0) == 0)
+                    {
+                        std::istringstream iss(line.substr(5));
+                        string s, e;
+                        iss >> s >> e;
+                        if (!apply_move_string(game, s, e))
+                        {
+                            cout << "Received illegal move. Terminating." << endl;
+                            terminated = true;
+                            break;
+                        }
+                        // Opponent moved; exit waiting loop to refresh board
+                        break;
+                    }
+                    else
+                    {
+                        cout << "Protocol error. Terminating." << endl;
+                        terminated = true;
+                        break;
+                    }
+                }
+
+                // User input for chat while waiting
+                if (FD_ISSET(STDIN_FILENO, &rfds))
+                {
+                    std::string cmd;
+                    if (!std::getline(std::cin, cmd))
+                    {
+                        // Input stream closed; keep waiting on network
+                        continue;
+                    }
+                    // Trim leading spaces to check command
+                    size_t i = 0;
+                    while (i < cmd.size() && std::isspace(static_cast<unsigned char>(cmd[i])))
+                        ++i;
+                    if (i < cmd.size())
+                    {
+                        char c = static_cast<char>(std::tolower(static_cast<unsigned char>(cmd[i])));
+                        if (c == 'c')
+                        {
+                            cout << "Enter message: " << std::flush;
+                            std::string msg;
+                            std::getline(std::cin, msg);
+                            if (!msg.empty())
+                            {
+                                if (!send_line(conn.sock, std::string("CHAT ") + msg))
+                                {
+                                    cout << "Network error sending chat." << endl;
+                                    terminated = true;
+                                    break;
+                                }
+                                cout << "Sent." << endl;
+                            }
+                        }
+                        else
+                        {
+                            cout << "It's not your turn. Type 'c' to chat." << endl;
+                        }
+                    }
+                }
             }
-            else
-            {
-                cout << "Protocol error. Terminating." << endl;
+            if (terminated)
                 break;
-            }
         }
     }
 

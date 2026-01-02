@@ -1,26 +1,50 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "build",
-            "type": "shell",
-            "command": "cmake --build buildCLI -j6",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "problemMatcher": [
-                "$gcc"
-            ]
-        },
-        {
-            "label": "build debug",
-            "type": "shell",
-            "command": "cmake --build buildCLI --config Debug -j6",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            }
-        }
-    ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build",
+			"type": "shell",
+			"command": "cmake --build buildCLI -j6",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "build debug",
+			"type": "shell",
+			"command": "cmake --build buildCLI --config Debug -j6",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "build debug",
+			"type": "shell",
+			"command": "cmake --build buildCLI --config Debug -j6",
+			"group": "build"
+		},
+		{
+			"label": "build debug",
+			"type": "shell",
+			"command": "cmake --build buildCLI --config Debug -j6",
+			"group": "build"
+		},
+		{
+			"label": "build debug",
+			"type": "shell",
+			"command": "cmake --build buildCLI --config Debug -j6",
+			"group": "build"
+		},
+		{
+			"label": "build debug",
+			"type": "shell",
+			"command": "cmake --build buildCLI --config Debug -j6",
+			"group": "build"
+		}
+	]
 }
