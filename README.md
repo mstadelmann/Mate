@@ -1,6 +1,8 @@
 # Mate
 
-Mate is a terminal chess engine and board editor with an interactive menu-driven UI, a simple evaluation-based engine (minimax with optional alpha–beta pruning), SQLite persistence, and network play with chat.
+Source Code: https://github.com/mstadelmann/Mate
+
+Mate is a terminal chess engine and board editor with an interactive menu-driven UI, a very simple evaluation-based engine (minimax with optional alpha–beta pruning), SQLite persistence, and network play with chat.
 
 It is designed to be fast to try, easy to play, and hackable for experimentation.
 
@@ -108,6 +110,48 @@ Automatically written and loaded at startup. Key options:
 - `enable_debug_messages`: print extra debug output
 - `network_port`: TCP port for hosting/joining network games (default: 5555)
 - Piece-square tables: `pawnEvalWhite/Black`, `knightEvalWhite/Black`, `bishopEvalWhite/Black`, `rookEvalWhite/Black`, `evalQueenWhite/Black`, `kingEvalWhite/Black`
+
+### Configuration Details
+
+- **Material Values**: base piece scores used in evaluation.
+	- `pawnValue` (default 10), `knightValue` (30), `bishopValue` (30), `rookValue` (50), `queenValue` (90), `kingValue` (900).
+	- Higher values make the engine prefer preserving that piece type.
+
+- **Positional Weight**: scales piece-square table influence.
+	- `position_gamma` (default 1.0): final score ≈ material + `position_gamma` × positional.
+	- Increase to emphasize activity and placement; decrease to focus on material.
+
+- **Search Settings**:
+	- `minMaxDepth` (default 3): search ply for smart moves; typical range 2–5 for responsiveness.
+	- `use_AB_pruning` (default true): enables alpha–beta pruning for faster search.
+
+- **Mate/Patt Scores**: terminal node values used internally.
+	- `earlyMattVal` (30000): high score for early checkmates.
+	- `finalMattVal` (20000): score for checkmates closer to the endgame.
+	- `finalPattVal` (10000): stalemate score; usually less than mate.
+	- These are internal heuristics; adjust only if you understand the evaluation behavior.
+
+- **Search Sentinel Bounds**: initial min/max values for evaluation.
+	- `maxValStart` (-100000), `minValStart` (100000): used as starting bounds in search.
+	- Normally do not change.
+
+- **Debugging & Persistence**:
+	- `enable_debug_messages` (default false): prints additional info during moves/evaluation.
+	- `db_path` (default `games.db`): SQLite file path for saved games.
+
+- **Networking**:
+	- `network_port` (default 5555): TCP port used by both server and client.
+	- Change if the port is in use or blocked by firewall.
+
+- **Piece-Square Tables (PSTs)**:
+	- `pawnEvalWhite/Black`, `knightEvalWhite/Black`, `bishopEvalWhite/Black`, `rookEvalWhite/Black`, `evalQueenWhite/Black`, `kingEvalWhite/Black`.
+	- Each is an 8×8 array of doubles; higher values reward occupying that square.
+	- Arrays follow the engine’s orientation: top-left index is A1. Black tables are mirrored appropriately.
+	- Tuning PSTs changes style (e.g., centralization, development, king safety).
+
+Formula (conceptual): total score = material + `position_gamma` × PST contribution.
+
+Edit [bin/config.json](bin/config.json), then rerun Mate to apply changes.
 
 Edit `bin/config.json`, then rerun Mate to apply changes.
 
