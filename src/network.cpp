@@ -118,59 +118,71 @@ bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhit
         ::close(srv);
         return false;
     }
-    if (::listen(srv, 1) < 0)
+    if (::listen(srv, 4) < 0)
     {
         ::close(srv);
         return false;
     }
 
     cout << "Waiting for a player on port " << port << "..." << endl;
-    sockaddr_in cli{};
-    socklen_t clilen = sizeof(cli);
-    int cliSock = ::accept(srv, (sockaddr *)&cli, &clilen);
-    ::close(srv);
-    if (cliSock < 0)
-        return false;
 
-    // Announce name, color and whether password is required, then expect JOIN <name> [password] or QUIT
-    if (!send_line(cliSock, string("NAME ") + username + " " + (hostPlaysWhite ? "WHITE" : "BLACK") + " " + (password.empty() ? "OPEN" : "LOCKED")))
+    // Keep accepting connections until a client joins successfully
+    while (true)
     {
-        ::close(cliSock);
-        return false;
-    }
-
-    string line;
-    if (!recv_line(cliSock, line))
-    {
-        ::close(cliSock);
-        return false;
-    }
-
-    if (line.rfind("JOIN ", 0) == 0)
-    {
-        // Parse JOIN line: JOIN <name> [password]
-        std::istringstream iss(line.substr(5));
-        string clientName, clientPass;
-        iss >> clientName >> clientPass;
-        if (!password.empty() && clientPass != password)
+        sockaddr_in cli{};
+        socklen_t clilen = sizeof(cli);
+        int cliSock = ::accept(srv, (sockaddr *)&cli, &clilen);
+        if (cliSock < 0)
         {
-            (void)send_line(cliSock, "DENY");
-            ::close(cliSock);
-            return false;
+            // Accept failed; keep server alive to try again
+            continue;
         }
-        (void)send_line(cliSock, "OK");
-        outConn.sock = cliSock;
-        outConn.isServer = true;
-        outConn.myName = username;
-        outConn.peerName = clientName;
-        outConn.myPlaysWhite = hostPlaysWhite;
-        outConn.port = port;
-        cout << "Player '" << outConn.peerName << "' joined. Starting game." << endl;
-        return true;
-    }
 
-    ::close(cliSock);
-    return false;
+        // Announce name, color and whether password is required,
+        // then expect JOIN <name> [password] or QUIT
+        if (!send_line(cliSock, string("NAME ") + username + " " + (hostPlaysWhite ? "WHITE" : "BLACK") + " " + (password.empty() ? "OPEN" : "LOCKED")))
+        {
+            ::close(cliSock);
+            continue;
+        }
+
+        string line;
+        if (!recv_line(cliSock, line))
+        {
+            ::close(cliSock);
+            continue;
+        }
+
+        if (line.rfind("JOIN ", 0) == 0)
+        {
+            // Parse JOIN line: JOIN <name> [password]
+            std::istringstream iss(line.substr(5));
+            string clientName, clientPass;
+            iss >> clientName >> clientPass;
+            if (!password.empty() && clientPass != password)
+            {
+                (void)send_line(cliSock, "DENY");
+                ::close(cliSock);
+                // Do not kill the server; keep listening for others
+                continue;
+            }
+
+            (void)send_line(cliSock, "OK");
+            outConn.sock = cliSock;
+            outConn.isServer = true;
+            outConn.myName = username;
+            outConn.peerName = clientName;
+            outConn.myPlaysWhite = hostPlaysWhite;
+            outConn.port = port;
+            cout << "Player '" << outConn.peerName << "' joined. Starting game." << endl;
+            // Successful join: close listening socket and start game
+            ::close(srv);
+            return true;
+        }
+
+        // Any other message: close and keep listening
+        ::close(cliSock);
+    }
 }
 
 bool connect_client(const std::string &host, uint16_t port, const std::string &username, NetConnection &outConn)
