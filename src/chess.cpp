@@ -86,6 +86,7 @@ void chess::init_game()
     // save initial position and empty move
     motionType emptyMove = {};
     emptyMove.type_of_move = moveType::init;
+    emptyMove.moved_by_whom = moved_by::none;
     gameHistory.push_back(emptyMove);
     gamePositionHistory.push_back(chessboard);
     // Snapshot game state for undo/redo
