@@ -3,6 +3,7 @@
 #include "config.h"
 #include "database.h"
 #include "network.h"
+#include <limits>
 
 void game_loop(chess &);
 
@@ -48,7 +49,12 @@ int main(int argc, char **argv)
                 std::string col;
                 std::cin >> col;
                 bool hostWhite = (!col.empty() && (col[0] == 'w' || col[0] == 'W'));
-                if (!start_server(port, uname, hostWhite, conn))
+                cout << "Set a server password (leave empty for none): " << std::flush;
+                std::string srvPass;
+                // Consume leftover newline from previous formatted input, then allow empty line
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                std::getline(std::cin, srvPass);
+                if (!start_server(port, uname, hostWhite, srvPass, conn))
                 {
                     cout << "Failed to start server or accept connection." << endl;
                     break;

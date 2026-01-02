@@ -17,7 +17,7 @@ struct NetConnection
 };
 
 // Server start, wait for a client, announce name, receive JOIN, set peerName
-bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhite, NetConnection &outConn);
+bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhite, const std::string &password, NetConnection &outConn);
 
 // Client lifecycle: connect, receive server name, optionally send JOIN with our username
 // Returns false if user declines to join or connection fails

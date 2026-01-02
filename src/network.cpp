@@ -94,12 +94,13 @@ namespace
         cout << " - a: List all legal moves" << endl;
         cout << " - l: Show game history" << endl;
         cout << " - w: Write to database" << endl;
+        cout << " - c: Send a chat message" << endl;
         cout << " - q: Quit game" << endl;
         cout << endl;
     }
 }
 
-bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhite, NetConnection &outConn)
+bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhite, const std::string &password, NetConnection &outConn)
 {
     int srv = ::socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0)
@@ -131,8 +132,8 @@ bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhit
     if (cliSock < 0)
         return false;
 
-    // Announce name and color, then expect JOIN <name> or QUIT
-    if (!send_line(cliSock, string("NAME ") + username + " " + (hostPlaysWhite ? "WHITE" : "BLACK")))
+    // Announce name, color and whether password is required, then expect JOIN <name> [password] or QUIT
+    if (!send_line(cliSock, string("NAME ") + username + " " + (hostPlaysWhite ? "WHITE" : "BLACK") + " " + (password.empty() ? "OPEN" : "LOCKED")))
     {
         ::close(cliSock);
         return false;
@@ -147,10 +148,21 @@ bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhit
 
     if (line.rfind("JOIN ", 0) == 0)
     {
+        // Parse JOIN line: JOIN <name> [password]
+        std::istringstream iss(line.substr(5));
+        string clientName, clientPass;
+        iss >> clientName >> clientPass;
+        if (!password.empty() && clientPass != password)
+        {
+            (void)send_line(cliSock, "DENY");
+            ::close(cliSock);
+            return false;
+        }
+        (void)send_line(cliSock, "OK");
         outConn.sock = cliSock;
         outConn.isServer = true;
         outConn.myName = username;
-        outConn.peerName = line.substr(5);
+        outConn.peerName = clientName;
         outConn.myPlaysWhite = hostPlaysWhite;
         outConn.port = port;
         cout << "Player '" << outConn.peerName << "' joined. Starting game." << endl;
@@ -199,12 +211,13 @@ bool connect_client(const std::string &host, uint16_t port, const std::string &u
         ::close(sock);
         return false;
     }
-    // Expect: NAME <serverName> <color>
+    // Expect: NAME <serverName> <color> [OPEN|LOCKED]
     std::istringstream iss(line.substr(5));
-    string serverName, colorToken;
-    iss >> serverName >> colorToken;
+    string serverName, colorToken, lockToken;
+    iss >> serverName >> colorToken >> lockToken;
     bool hostIsWhite = (colorToken == "WHITE");
-    cout << "Found server hosted by '" << serverName << "' (" << (hostIsWhite ? "White" : "Black") << "). Join? (y/n): " << std::flush;
+    bool requiresPass = (lockToken == "LOCKED");
+    cout << "Found server hosted by '" << serverName << "' (" << (hostIsWhite ? "White" : "Black") << (requiresPass ? ", password protected" : "") << "). Join? (y/n): " << std::flush;
     string ans;
     std::cin >> ans;
     if (ans.empty() || (ans[0] != 'y' && ans[0] != 'Y'))
@@ -214,8 +227,28 @@ bool connect_client(const std::string &host, uint16_t port, const std::string &u
         return false;
     }
 
-    if (!send_line(sock, string("JOIN ") + username))
+    string pwd;
+    if (requiresPass)
     {
+        cout << "Enter server password: " << std::flush;
+        std::getline(std::cin >> std::ws, pwd);
+    }
+    if (!send_line(sock, string("JOIN ") + username + (pwd.empty() ? string("") : string(" ") + pwd)))
+    {
+        ::close(sock);
+        return false;
+    }
+
+    // Expect server response OK or DENY
+    string resp;
+    if (!recv_line(sock, resp))
+    {
+        ::close(sock);
+        return false;
+    }
+    if (resp == "DENY")
+    {
+        cout << "Wrong password. Access denied." << endl;
         ::close(sock);
         return false;
     }
@@ -263,7 +296,7 @@ int run_network_game(chess &game, NetConnection &conn)
 
         if (myTurn)
         {
-            cout << "Enter move (e.g. E2 E4) or 'q' (help: 'h'): " << std::flush;
+            cout << "Enter move (e.g. E2 E4) or 'q' (help: 'h', chat: 'c'): " << std::flush;
             string s, e;
             std::cin >> s;
             if (s == "q" || s == "Q")
@@ -297,6 +330,22 @@ int run_network_game(chess &game, NetConnection &conn)
                     print_network_help();
                     continue;
                 }
+                else if (c == 'c')
+                {
+                    cout << "Enter message: " << std::flush;
+                    std::string msg;
+                    std::getline(std::cin >> std::ws, msg);
+                    if (!msg.empty())
+                    {
+                        if (!send_line(conn.sock, std::string("CHAT ") + msg))
+                        {
+                            cout << "Network error sending chat." << endl;
+                            break;
+                        }
+                        cout << "Sent." << endl;
+                    }
+                    continue;
+                }
             }
             std::cin >> e;
             if (!apply_move_string(game, s, e))
@@ -323,6 +372,11 @@ int run_network_game(chess &game, NetConnection &conn)
             {
                 cout << "Opponent quit the game." << endl;
                 break;
+            }
+            if (line.rfind("CHAT ", 0) == 0)
+            {
+                cout << "Message from " << conn.peerName << ": " << line.substr(5) << endl;
+                continue;
             }
             if (line.rfind("MOVE ", 0) == 0)
             {
