@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "config.h"
 #include "database.h"
+#include "network.h"
 
 void game_loop(chess &);
 
@@ -26,6 +27,57 @@ int main(int argc, char **argv)
             game.load_starting_position();
             game_loop(game);
             break;
+        case MainMenuChoice::StartNetworkGame:
+        {
+            cout << "\nNetwork mode selected." << endl;
+            cout << "Start a server or join a game? (s/j): " << std::flush;
+            std::string mode;
+            std::cin >> mode;
+            if (mode.empty())
+                break;
+
+            const uint16_t port = 5555;
+            NetConnection conn;
+
+            if (mode[0] == 's' || mode[0] == 'S')
+            {
+                cout << "Enter your username: " << std::flush;
+                std::string uname;
+                std::cin >> uname;
+                cout << "Play as white or black? (w/b): " << std::flush;
+                std::string col;
+                std::cin >> col;
+                bool hostWhite = (!col.empty() && (col[0] == 'w' || col[0] == 'W'));
+                if (!start_server(port, uname, hostWhite, conn))
+                {
+                    cout << "Failed to start server or accept connection." << endl;
+                    break;
+                }
+                run_network_game(game, conn);
+                close_connection(conn);
+            }
+            else if (mode[0] == 'j' || mode[0] == 'J')
+            {
+                cout << "Enter server IP or hostname: " << std::flush;
+                std::string host;
+                std::cin >> host;
+                cout << "Enter your username: " << std::flush;
+                std::string uname;
+                std::cin >> uname;
+                if (!connect_client(host, port, uname, conn))
+                {
+                    cout << "Could not join a game." << endl;
+                    break;
+                }
+                run_network_game(game, conn);
+                close_connection(conn);
+            }
+            else
+            {
+                cout << "Unknown choice." << endl;
+            }
+            break;
+        }
         case MainMenuChoice::PLAY:
             cout << "\nPlaying with current board configuration..." << endl;
             game_loop(game);
