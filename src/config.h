@@ -1,6 +1,8 @@
 #ifndef CONF_H
 #define CONF_H
 
+#include <string>
+
 extern double pawnEvalWhite[8][8];
 extern double pawnEvalBlack[8][8];
 extern double knightEvalWhite[8][8];
@@ -33,6 +35,8 @@ extern int minValStart;
 extern int minMaxDepth;
 extern bool use_AB_pruning;
 extern bool enable_debug_messages;
+
+extern std::string db_path;
 
 // Load/save config.json next to the binary
 bool load_config_from_json();

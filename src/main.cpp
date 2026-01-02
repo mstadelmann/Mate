@@ -22,29 +22,26 @@ int main(int argc, char **argv)
         switch (selection)
         {
         case MainMenuChoice::StartNewGame:
-            cout << "Starting a new game..." << endl;
+            cout << "\nStarting a new game..." << endl;
             game.load_starting_position();
             game_loop(game);
             break;
         case MainMenuChoice::PLAY:
-            cout << "Playing with current board configuration..." << endl;
+            cout << "\nPlaying with current board configuration..." << endl;
             game_loop(game);
             break;
         case MainMenuChoice::BoardEditor:
             game.board_editor();
             break;
         case MainMenuChoice::LoadFromDatabase:
-            cout << "Loading game from database..." << endl;
+            cout << "\nLoading game from database..." << endl;
             LoadFromDatabase(game);
             break;
-        case MainMenuChoice::Help:
-            cout << "Help: Use the menu to select actions." << endl;
-            break;
         case MainMenuChoice::Quit:
-            cout << "Quitting." << endl;
+            cout << "\nQuitting." << endl;
             return 0;
         default:
-            cout << "Invalid selection; feature not implemented." << endl;
+            cout << "\nInvalid selection; feature not implemented." << endl;
             break;
         }
     }

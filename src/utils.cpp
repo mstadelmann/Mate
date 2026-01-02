@@ -70,7 +70,7 @@ MainMenuChoice MainMenu(bool print_menu)
     for (const auto &it : kMainMenuItems)
         labels.push_back(it.label);
 
-    int idx = showMenuAndGetIndex("Main Menu:", kMainMenuItems.size(), labels.data(), print_menu);
+    int idx = showMenuAndGetIndex("\nMain Menu:", kMainMenuItems.size(), labels.data(), print_menu);
     return kMainMenuItems[static_cast<size_t>(idx)].choice;
 }
 

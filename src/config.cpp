@@ -274,6 +274,7 @@ int minValStart = 100000;
 int minMaxDepth = 3;
 bool use_AB_pruning = true;
 bool enable_debug_messages = true;
+std::string db_path = "games.db";
 
 static std::string getBinaryDir()
 {
@@ -321,6 +322,7 @@ bool save_config_to_json()
     out << "  \"minValStart\": " << minValStart << ",\n";
     out << "  \"minMaxDepth\": " << minMaxDepth << ",\n";
     out << "  \"use_AB_pruning\": " << (use_AB_pruning ? "true" : "false") << ",\n";
+    out << "  \"db_path\": \"" << db_path << "\",\n";
     out << "  \"enable_debug_messages\": " << (enable_debug_messages ? "true" : "false") << ",\n";
     auto writeArray = [&out](const char *name, double a[8][8])
     {
@@ -454,6 +456,24 @@ bool load_config_from_json()
         }
         return false;
     };
+    auto findString = [&](const char *key, std::string &out)
+    {
+        std::string k = std::string("\"") + key + "\"";
+        auto p = content.find(k);
+        if (p == std::string::npos)
+            return false;
+        p = content.find(':', p);
+        if (p == std::string::npos)
+            return false;
+        auto valStart = content.find_first_of('"', p + 1);
+        if (valStart == std::string::npos)
+            return false;
+        auto valEnd = content.find_first_of('"', valStart + 1);
+        if (valEnd == std::string::npos)
+            return false;
+        out = content.substr(valStart + 1, valEnd - valStart - 1);
+        return true;
+    };
     findInt("pawnValue", pawnValue);
     findInt("rookValue", rookValue);
     findInt("knightValue", knightValue);
@@ -468,6 +488,7 @@ bool load_config_from_json()
     findInt("minValStart", minValStart);
     findInt("minMaxDepth", minMaxDepth);
     findBool("use_AB_pruning", use_AB_pruning);
+    findString("db_path", db_path);
     findBool("enable_debug_messages", enable_debug_messages);
 
     parseArray(content, "pawnEvalWhite", pawnEvalWhite);

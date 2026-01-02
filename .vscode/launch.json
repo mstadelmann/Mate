@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug chessy CLI",
+            "name": "Debug Mate",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/Mate",

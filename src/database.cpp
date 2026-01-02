@@ -473,7 +473,7 @@ namespace
 void store_to_DB(const chess &currentGame)
 {
     sqlite3 *db = nullptr;
-    int rc = sqlite3_open("chessyDB.db", &db);
+    int rc = sqlite3_open(db_path.c_str(), &db);
     if (rc)
     {
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
@@ -556,7 +556,7 @@ static pieceType decode_square_code(const std::string &code)
 void LoadFromDatabase(chess &game)
 {
     sqlite3 *db = nullptr;
-    int rc = sqlite3_open("chessyDB.db", &db);
+    int rc = sqlite3_open(db_path.c_str(), &db);
     if (rc)
     {
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));

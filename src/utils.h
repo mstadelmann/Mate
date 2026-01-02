@@ -19,13 +19,12 @@ using std::tuple;
 
 void printLogo(void);
 
-#define MAIN_MENU_ITEMS(X)                           \
-    X(StartNewGame, "Start new game")                \
-    X(PLAY, "Play with current board configuration") \
-    X(BoardEditor, "Create custom board position")   \
-    X(LoadFromDatabase, "Load game from database")   \
-    X(StartNetworkGame, "Start network game")        \
-    X(Help, "Help")                                  \
+#define MAIN_MENU_ITEMS(X)                                        \
+    X(StartNewGame, "Start new game")                             \
+    X(BoardEditor, "Board editor (set up custom board position)") \
+    X(LoadFromDatabase, "Load game from database")                \
+    X(PLAY, "Play with current board configuration")              \
+    X(StartNetworkGame, "Start network game")                     \
     X(Quit, "Quit")
 
 enum class MainMenuChoice
