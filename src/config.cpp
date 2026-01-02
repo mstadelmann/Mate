@@ -275,6 +275,7 @@ int minMaxDepth = 3;
 bool use_AB_pruning = true;
 bool enable_debug_messages = false;
 std::string db_path = "games.db";
+int network_port = 5555;
 
 static std::string getBinaryDir()
 {
@@ -324,6 +325,7 @@ bool save_config_to_json()
     out << "  \"use_AB_pruning\": " << (use_AB_pruning ? "true" : "false") << ",\n";
     out << "  \"db_path\": \"" << db_path << "\",\n";
     out << "  \"enable_debug_messages\": " << (enable_debug_messages ? "true" : "false") << ",\n";
+    out << "  \"network_port\": " << network_port << ",\n";
     auto writeArray = [&out](const char *name, double a[8][8])
     {
         out << "  \"" << name << "\": [\n";
@@ -490,6 +492,7 @@ bool load_config_from_json()
     findBool("use_AB_pruning", use_AB_pruning);
     findString("db_path", db_path);
     findBool("enable_debug_messages", enable_debug_messages);
+    findInt("network_port", network_port);
 
     parseArray(content, "pawnEvalWhite", pawnEvalWhite);
     parseArray(content, "pawnEvalBlack", pawnEvalBlack);

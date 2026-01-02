@@ -17,8 +17,6 @@ using std::string;
 
 namespace
 {
-    constexpr uint16_t kDefaultPort = 5555;
-
     bool send_line(int sock, const string &line)
     {
         string data = line;

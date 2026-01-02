@@ -37,6 +37,7 @@ extern bool use_AB_pruning;
 extern bool enable_debug_messages;
 
 extern std::string db_path;
+extern int network_port; // TCP port for network games
 
 // Load/save config.json next to the binary
 bool load_config_from_json();

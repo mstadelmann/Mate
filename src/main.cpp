@@ -36,7 +36,7 @@ int main(int argc, char **argv)
             if (mode.empty())
                 break;
 
-            const uint16_t port = 5555;
+            const uint16_t port = static_cast<uint16_t>(network_port);
             NetConnection conn;
 
             if (mode[0] == 's' || mode[0] == 'S')
