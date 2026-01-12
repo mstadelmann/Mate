@@ -5,10 +5,10 @@
 **Chess Tensor Generation**
 - **Script:** Generates training tensors from PGN games in [torch_model/data_preparation/generate_chess_tensor.py](torch_model/data_preparation/generate_chess_tensor.py).
 - **Pipeline:** Extract header + sample, clean to CSV, filter, build tensors, dedupe positions, save pickle.
-- **Packages:** chess, pandas, numpy (see [torch_model/data_preparation/requirements.txt](torch_model/data_preparation/requirements.txt)).
+- **Packages:** chess, pandas, numpy, PyYAML (see [torch_model/data_preparation/requirements.txt](torch_model/data_preparation/requirements.txt)).
 
 **Configuration**
-- **Config file:** JSON at [torch_model/data_preparation/chess_tensor_config.json](torch_model/data_preparation/chess_tensor_config.json).
+- **Config file:** YAML at [torch_model/data_preparation/chess_tensor_config.yaml](torch_model/data_preparation/chess_tensor_config.yaml) (JSON also supported).
 - **Fields:**
 	- **`chess_db_base_path`:** Path to large PGN text DB.
 	- **`number_of_games`:** Number of games to sample (keeps first N after headers).
@@ -28,8 +28,8 @@
 	- **`out_array`:** (N, 1, 8, 8) move mask (source −1, destination +1; clipped to [-1, 1]).
 	- Keeps only black moves (positions where it becomes White's turn after push).
 - **Deduping:** `dedupe_by_best_response()` removes duplicate `in_array` positions, keeping the black reply with highest cumulative rating.
-- **Export:** `save_tensor()` writes `{in_array, out_array}` to a `.chesstensor` pickle named like:
-	- `/path/to/chess_db_nbGames{N}_stopAfter{X}_nbMoves{M}_minElo{E}.chesstensor`.
+- **Export:** `save_tensor()` writes `{in_array, out_array}` to a `.chessarray` pickle named like:
+	- `/path/to/chess_db_nbGames{N}_stopAfter{X}_nbMoves{M}_minElo{E}.chessarray`.
 
 **Run**
 - **Install deps:**
@@ -37,14 +37,14 @@
 pip install -r torch_model/data_preparation/requirements.txt
 ```
 
-- **Generate data:**
+- **Generate data (YAML):**
 ```bash
 cd torch_model/data_preparation
-python3 generate_chess_tensor.py --config chess_tensor_config.json
+python3 generate_chess_tensor.py --config chess_tensor_config.yaml
 ```
 
 **Validation**
-- The script validates the JSON config before running:
+- The script validates the YAML config before running:
 	- Checks required keys and types (e.g., `number_of_games:int`, `debug:bool`).
 	- Ensures numeric constraints (e.g., `number_of_games > 0`).
 	- Verifies the DB file path exists after expanding `~`.
@@ -53,4 +53,4 @@ python3 generate_chess_tensor.py --config chess_tensor_config.json
 **Notes**
 - Temp files created during processing are cleaned up at the end.
 - Large `number_of_games` values increase memory/time; start small to validate.
-- Set `stopAfterXMoves` to `null` in the JSON to process full games.
+- Set `stopAfterXMoves` to `null` in the config to process full games.

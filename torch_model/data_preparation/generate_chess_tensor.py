@@ -2,9 +2,15 @@ import io
 import os
 import pickle
 import json
+import pathlib
 import argparse
 from itertools import islice
 from typing import Tuple, Optional
+
+try:
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover - handled at runtime if missing
+    yaml = None
 
 import chess
 import chess.pgn
@@ -89,8 +95,17 @@ def expand_path(path: str) -> str:
 
 
 def load_config(config_path: str) -> dict:
-    """Load JSON configuration from `config_path`."""
-    with open(expand_path(config_path), "r", encoding="utf8") as f:
+    """Load configuration (YAML or JSON) from `config_path` based on file extension."""
+    path = expand_path(config_path)
+    suffix = pathlib.Path(path).suffix.lower()
+    with open(path, "r", encoding="utf8") as f:
+        if suffix in {".yaml", ".yml"}:
+            if yaml is None:
+                raise ImportError(
+                    "PyYAML is required for YAML configs. Install 'pyyaml'."
+                )
+            return yaml.safe_load(f)
+        # default to JSON
         return json.load(f)
 
 
@@ -383,9 +398,11 @@ def save_tensor(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate chess tensors from PGN DB using JSON config."
+        description="Generate chess tensors from PGN DB using YAML/JSON config."
     )
-    parser.add_argument("--config", required=True, help="Path to JSON config file")
+    parser.add_argument(
+        "--config", required=True, help="Path to YAML or JSON config file"
+    )
     args = parser.parse_args()
 
     cfg = validate_config(load_config(args.config))
