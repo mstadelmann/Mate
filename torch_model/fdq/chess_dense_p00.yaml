@@ -1,0 +1,87 @@
+globals:
+  project: Chess
+  author: Marc
+
+mode:
+  run_train: false
+  run_test_interactive: false
+  run_test_auto: false
+  dump_model: true
+  run_inference: false
+  print_model_summary: false
+  resume_chpt_path: null
+
+models:
+  simpleNet:
+    path: "~/dev/fonduecaquelon/src/networks/simpleNet.py"
+    class_name: "simpleNet"
+    args:
+      nb_in_channels: 6
+      nb_out_channels: 64
+      input_shape:
+        - 8
+        - 8
+      nodes_per_layer: [384, 300, 300, 200]
+    optimizer:
+      class_name: "torch.optim.Adam"
+      args:
+        lr: 0.001
+
+train:
+  path: "~/dev/Mate/torch_model/fdq/train.py"
+  args:
+    epochs: 2
+    use_GPU: false
+    use_AMP: false
+    accumulate_grad_batches: 1
+    early_stop_val_loss: 5
+    early_stop_train_loss: 5
+    early_stop_nan: 5
+
+losses:
+  mse_loss:
+    class_name: "torch.nn.MSELoss"
+    # args:
+    #   reduction: "mean"
+
+data:
+  CHESS:
+    processor: "~/dev/Mate/torch_model/fdq/chess_preparator.py"
+    args:
+      base_path: "~/data_ML/chess/"
+      train_set: "chess_db_2mio_nbGames500_stopAfter500_nbMoves7868_minElo2600.chessarray"
+      test_set: "chess_db_2mio_nbGames200_stopAfter500_nbMoves3113_minElo2600.chessarray"
+      subset_train: 1.0
+      subset_test: 1.0
+      val_ratio: 0.1
+      pin_memory: true
+      num_workers: 4
+      train_batch_size: 256
+      val_batch_size: 256
+      test_batch_size: 1
+      shuffle_train: true
+      shuffle_val: false
+      shuffle_test: false
+      flatten: true
+
+      
+store:
+  results_path: "~/data_ML/results"
+  img_exp_nb: 4
+  save_last_model: true
+  save_best_val_model: true
+  save_best_train_model: true
+  checkpoint_frequency: 2
+  use_tensorboard: false
+  use_wandb: false
+  wandb_project: "Chess"
+  wandb_entity: "stmd"
+
+
+
+test:
+  processor: "~/dev/Mate/torch_model/fdq/chess_evaluator.py"
+  test_model: "best"
+  args:
+    metrics:
+      nb_test_samples: "100"

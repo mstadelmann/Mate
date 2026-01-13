@@ -2,3 +2,4 @@
 *.db
 .vscode
 ressources
+*/*/__pycache__
