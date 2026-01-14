@@ -56,6 +56,7 @@ enum class moved_by
 {
     human,
     engine,
+    ai,
     random,
     network,
     none
@@ -167,6 +168,7 @@ public:
     void executeMove(motionType);
     bool manualMove();
     bool randomMove();
+    bool mlMove();
     boardCoordinateType chessCoordinatesFromString(const string &);
     bool currentlyChecked();
     boardCoordinateType findKing();

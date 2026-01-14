@@ -134,6 +134,10 @@ void game_loop(chess &game)
             cout << "Performing smart move..." << endl;
             game.performSmartMove();
             break;
+        case GameMenuChoice::MLMove:
+            cout << "Performing ML move..." << endl;
+            game.mlMove();
+            break;
         case GameMenuChoice::RandomMove:
             cout << "Performing random move..." << endl;
             game.randomMove();

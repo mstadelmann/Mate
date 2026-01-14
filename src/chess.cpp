@@ -1619,6 +1619,8 @@ std::string movedByToString(moved_by mb)
         return "human";
     case moved_by::engine:
         return "engine";
+    case moved_by::ai:
+        return "ai";
     case moved_by::random:
         return "random";
     case moved_by::network:

@@ -14,6 +14,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
 
+# Find Pytorch
+# https://docs.pytorch.org/cppdocs/installing.html
+# wget https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip
+# unzip libtorch-shared-with-deps-latest.zip
+# currently tested with libtorch-cxx11-abi-shared-with-deps-2.7.1+cpu.zip
+set(CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/lib/libtorch")
+find_package(Torch REQUIRED)
+message(STATUS "Pytorch status:")
+message(STATUS "    libraries: ${TORCH_LIBRARIES}")
 
 # Set the output folder where your program will be created
 # CMAKE_SOURCE_DIR -> where to cmake was executed
@@ -38,10 +47,14 @@ add_executable(${PROJECT_NAME}
 	${PROJECT_SOURCE_DIR}/src/database.cpp
 	${PROJECT_SOURCE_DIR}/src/utils.cpp
 	${PROJECT_SOURCE_DIR}/src/chess.cpp
+	${PROJECT_SOURCE_DIR}/src/chess_ML.cpp
 	${PROJECT_SOURCE_DIR}/src/config.cpp
 	${PROJECT_SOURCE_DIR}/src/network.cpp
 )
 
 find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
-target_link_libraries (${PROJECT_NAME} ${SQLite3_LIBRARIES})
+target_link_libraries(${PROJECT_NAME}
+    ${SQLite3_LIBRARIES}
+    "${TORCH_LIBRARIES}"
+)

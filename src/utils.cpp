@@ -118,6 +118,8 @@ GameMenuChoice GameMenu(bool print_menu)
             return GameMenuChoice::ManualMove;
         case 's':
             return GameMenuChoice::SmartMove;
+        case 'p':
+            return GameMenuChoice::MLMove;
         case 'r':
             return GameMenuChoice::RandomMove;
         case 'u':

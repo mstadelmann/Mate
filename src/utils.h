@@ -39,6 +39,7 @@ MainMenuChoice MainMenu(bool print_menu = true);
 #define GAME_MENU_ITEMS(X)                      \
     X(ManualMove, " m: Enter manual move")      \
     X(SmartMove, " s: Run smart move")          \
+    X(MLMove, " p: Run ML move")                \
     X(RandomMove, " r: Run random move")        \
     X(Undo, " u: Undo last move")               \
     X(ListAllMoves, " a: List all legal moves") \

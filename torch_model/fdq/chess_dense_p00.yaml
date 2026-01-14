@@ -3,9 +3,9 @@ globals:
   author: Marc
 
 mode:
-  run_train: true
+  run_train: false
   run_test_interactive: false
-  run_test_auto: true
+  run_test_auto: false
   dump_model: true
   run_inference: false
   print_model_summary: false
