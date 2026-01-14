@@ -16,6 +16,7 @@
   "db_path": "games.db",
   "enable_debug_messages": false,
   "network_port": 5555,
+  "ml_model_path": "~/dev/Mate/torch_model/trained_models/simpleNet_torchscript.onnx",
   "pawnEvalWhite": [
     [0, 0, 0, 0, 0, 0, 0, 0],
     [5, 10, 10, -20, -20, 10, 10, 5],
