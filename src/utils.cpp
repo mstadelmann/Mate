@@ -9,7 +9,7 @@ void printLogo(void)
     cout << " | |  | | (_| | ||  __/" << endl;
     cout << " |_|  |_|\\__,_|\\__\\___|" << endl;
     cout << "----------------------------------------" << endl;
-    cout << "         MATE - Chess Engine v0.1       " << endl;
+    cout << "         MATE - Chess Engine v." << MATE_VERSION << "       " << endl;
     cout << "   https://github.com/mstadelmann/Mate  " << endl;
     cout << "----------------------------------------" << endl
          << endl;
