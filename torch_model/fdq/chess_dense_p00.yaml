@@ -3,9 +3,9 @@ globals:
   author: Marc
 
 mode:
-  run_train: false
+  run_train: true
   run_test_interactive: false
-  run_test_auto: false
+  run_test_auto: true
   dump_model: true
   run_inference: false
   print_model_summary: false
@@ -30,7 +30,7 @@ models:
 train:
   path: "~/dev/Mate/torch_model/fdq/train.py"
   args:
-    epochs: 2
+    epochs: 10
     use_GPU: false
     use_AMP: false
     accumulate_grad_batches: 1

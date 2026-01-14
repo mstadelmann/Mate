@@ -1,5 +1,5 @@
 chess_db_base_path: /home/marc/data_ML/chess/chess_db_2mio.txt
-number_of_games: 200
+number_of_games: 10000
 stopAfterXMoves: 500
 min_nb_moves: 20
 minElo: 2600

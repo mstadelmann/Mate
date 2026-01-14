@@ -1,4 +1,3 @@
-import sys
 import numpy as np
 import torch
 import chess
@@ -35,7 +34,65 @@ def array_to_board(in_array: np.ndarray) -> chess.Board:
     return board
 
 
+def _evaluate_batch(experiment, batch, verbose: bool = False):
+    """Evaluate a single batch and return (correct_position, correct_move).
+
+    The target and prediction are both represented as 64-element vectors
+    (8x8 board flattened) with values in ``{-1, 0, 1}`` where ``-1`` marks
+    the "from" square, ``+1`` marks the "to" square, and ``0`` all others.
+
+    - ``correct_move`` is 1 only if the predicted move exactly matches the
+        target (both from- and to-square correct).
+    - ``correct_position`` is 1 when the prediction is at least partially
+        correct in terms of the squares involved in the move (from or to).
+
+    When ``verbose`` is True, the current state, target and prediction are
+    printed and the function waits for user input before continuing.
+    """
+
+    model = experiment.models["simpleNet"]
+
+    inputs = batch["inputs"]
+    targets = batch["targets"]
+
+    if verbose:
+        print("------------------------------------------------")
+        print("current state:")
+        print(array_to_board(torch.squeeze(inputs).numpy()))
+
+        print("\nTarget:")
+        print(torch.squeeze(targets).reshape(8, 8).numpy())
+
+    pred = model(inputs.to(experiment.device))
+
+    pred_minmax = torch.zeros(64, device=pred.device)
+    pred_minmax[torch.argmin(pred)] = -1
+    pred_minmax[torch.argmax(pred)] = 1
+
+    if verbose:
+        print("\nPrediction:")
+        print(torch.squeeze(pred_minmax.cpu()).reshape(8, 8).numpy())
+        input("Press Enter to continue...")
+
+    correct_position = (
+        torch.max(targets - pred_minmax.cpu()) == 0
+        or torch.min(targets - pred_minmax.cpu()) == 0
+    )
+    correct_move = (
+        torch.max(targets - pred_minmax.cpu()) == 0
+        and torch.min(targets - pred_minmax.cpu()) == 0
+    )
+
+    return int(correct_position), int(correct_move)
+
+
 def fdq_test(experiment):
+    print(
+        "Scoring metrics:\n"
+        "- correct_move: predicted move exactly matches the target (from- and to-square).\n"
+        "- correct_position: prediction is at least partially correct w.r.t. the involved squares."
+    )
+
     experiment.models["simpleNet"].eval()
     test_loader = experiment.data["CHESS"].test_data_loader
 
@@ -48,14 +105,17 @@ def fdq_test(experiment):
     else:
         tmode = getIntInput(
             "\nSelect Testmode:\n1: Automatic with predefined data.\n2: Automatic with"
-            " predefined data - verbose.\n3: kings pawn E4 (expect C5 or E5 response)",
+            " predefined data - verbose.\n3: Manual Test: Kings pawn E2-E4 (expect C5 or E5 response)",
             [1, 3],
         )
 
-    if tmode == 1:
-        max_samples_to_print = (
-            500000  # getIntInput("How many random samples do you want to show?\n")
-        )
+    if tmode in (1, 2):
+        if tmode == 1:
+            max_samples_to_print = 500000
+        else:
+            max_samples_to_print = getIntInput(
+                "How many random samples do you want to show?\n", [1, 500000]
+            )
 
         correct_positions = 0
         correct_moves = 0
@@ -65,105 +125,20 @@ def fdq_test(experiment):
         for i, batch in enumerate(test_loader):
             if i + 1 > max_samples_to_print:
                 print("done testing..")
-                sys.exit()
+                break
 
             nb_evaluated_moved += 1
 
-            # print("--------------------------------------")
-
-            inputs = batch["inputs"]
-            targets = batch["targets"]
-
-            # print(array_to_board(torch.squeeze(inputs).numpy()))
-
-            pred = experiment.models["simpleNet"](inputs.to(experiment.device))
-
-            pred_minmax = torch.zeros(64)
-            pred_minmax[torch.argmin(pred)] = -1
-            pred_minmax[torch.argmax(pred)] = 1
-
-            if (
-                torch.max(targets - pred_minmax) == 0
-                or torch.min(targets - pred_minmax) == 0
-            ):
-                correct_positions += 1
-
-            if (
-                torch.max(targets - pred_minmax) == 0
-                and torch.min(targets - pred_minmax) == 0
-            ):
-                correct_moves += 1
-            else:
-                pass
-                # createSubplots([pred.view(8,8).detach(),F.softmax(pred,dim=1).view(8,8).detach()
-                # ,targets.view(8,8).detach(),pred_minmax.view(8,8).detach()])
-
-            print(
-                f"correct moves: {correct_moves}/{i + 1}, correct positions: {correct_positions}"
-            )
+            verbose = tmode == 2
+            c_pos, c_move = _evaluate_batch(experiment, batch, verbose=verbose)
+            correct_positions += c_pos
+            correct_moves += c_move
 
             accuracy = correct_moves / nb_evaluated_moved
 
-        return accuracy
-
-    if tmode == 2:
-        max_samples_to_print = (
-            500000  # getIntInput("How many random samples do you want to show?\n")
-        )
-
-        correct_positions = 0
-        correct_moves = 0
-
-        nb_evaluated_moved = 0
-
-        for i, batch in enumerate(test_loader):
-            if i + 1 > max_samples_to_print:
-                print("done testing..")
-                sys.exit()
-
-            nb_evaluated_moved += 1
-
-            inputs = batch["inputs"]
-            targets = batch["targets"]
-
-            print("------------------------------------------------")
-            print("current state:")
-            print(array_to_board(torch.squeeze(inputs).numpy()))
-
-            print("\nTarget:")
-            print(torch.squeeze(targets).reshape(8, 8).numpy())
-
-            pred = experiment.networkModel(inputs.to(experiment.device))
-            pred_minmax = torch.zeros(64)
-            pred_minmax[torch.argmin(pred)] = -1
-            pred_minmax[torch.argmax(pred)] = 1
-
-            print("\nPrediction:")
-            print(torch.squeeze(pred_minmax).reshape(8, 8).numpy())
-
-            input("Press Enter to continue...")
-
-            if (
-                torch.max(targets - pred_minmax) == 0
-                or torch.min(targets - pred_minmax) == 0
-            ):
-                correct_positions += 1
-
-            if (
-                torch.max(targets - pred_minmax) == 0
-                and torch.min(targets - pred_minmax) == 0
-            ):
-                correct_moves += 1
-            else:
-                pass
-                # createSubplots([pred.view(8,8).detach(),F.softmax(pred,dim=1).view(8,8).detach(),
-                # targets.view(8,8).detach(),pred_minmax.view(8,8).detach()])
-
             print(
-                f"correct moves: {correct_moves}/{i + 1}, correct positions: {correct_positions}"
+                f"analyzed moves: {nb_evaluated_moved}, correct moves: {correct_moves}, correct positions: {correct_positions} -> Accuracy: {accuracy:.4f}"
             )
-
-            accuracy = correct_moves / nb_evaluated_moved
 
         return accuracy
 
@@ -197,9 +172,10 @@ def fdq_test(experiment):
         infield[:, 0, -2, 4] = 0  # white pawns
         infield[:, 0, -4, 4] = 1  # white pawns
 
-        pred = experiment.networkModel(infield.to(experiment.device))
+        model = experiment.models["simpleNet"]
+        pred = model(infield.to(experiment.device))
 
-        pred_minmax = torch.zeros(64)
+        pred_minmax = torch.zeros(64, device=pred.device)
         pred_minmax[torch.argmin(pred)] = -1
         pred_minmax[torch.argmax(pred)] = 1
 
@@ -208,13 +184,11 @@ def fdq_test(experiment):
         print(array_to_board(torch.squeeze(infield).numpy()))
 
         print("\nPrediction:")
-        print(torch.squeeze(pred_minmax).reshape(8, 8).numpy())
+        print(torch.squeeze(pred_minmax.cpu()).reshape(8, 8).numpy())
 
         input("Press Enter to continue...")
 
         print("raw prediction")
-        print(pred.reshape(8, 8))
-        print("minmax prediction")
-        print(pred_minmax.reshape(8, 8))
+        print(pred.detach().cpu().reshape(8, 8))
 
     return 1

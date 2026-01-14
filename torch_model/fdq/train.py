@@ -1,7 +1,6 @@
-"""This module defines the training procedure for the MNIST test experiment."""
+"""Training loop for the CHESS experiment using the fdq framework."""
 
 import torch
-import torchvision
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import startProgBar, iprint
 
@@ -16,7 +15,9 @@ def fdq_train(experiment: fdqExperiment) -> None:
 
     data = experiment.data["CHESS"]
     model = experiment.models["simpleNet"]
-    device_type = "cuda" if experiment.device == torch.device("cuda") else "cpu"
+
+    # Determine the autocast device type from the experiment's device.
+    device_type = getattr(getattr(experiment, "device", None), "type", "cpu")
 
     for epoch in range(experiment.start_epoch, experiment.nb_epochs):
         experiment.on_epoch_start(epoch=epoch)
