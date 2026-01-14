@@ -2,7 +2,7 @@
 
 Source Code: https://github.com/mstadelmann/Mate
 
-Mate is a terminal chess engine and board editor with an interactive menu-driven UI, a very simple evaluation-based engine (minimax with optional alpha–beta pruning), SQLite persistence, and network play with chat.
+Mate is a terminal chess engine and board editor with an interactive menu-driven UI, a very simple evaluation-based engine (minimax with optional alpha–beta pruning), SQLite persistence, optional ONNX-based AI moves, and network play with chat.
 
 It is designed to be fast to try, easy to play, and hackable for experimentation.
 
@@ -20,6 +20,7 @@ It is designed to be fast to try, easy to play, and hackable for experimentation
 - Configurable evaluation and engine depth via `config.json`
 - Unicode board rendering in the terminal
 - Network play: host/join over TCP, player names on board, real-time chat
+ - Optional ML move using an ONNX model (see [torch_model/torch_model.md](torch_model/torch_model.md) for details)
 
 ## Build & Run
 
