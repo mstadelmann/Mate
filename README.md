@@ -49,6 +49,27 @@ On first run, `config.json` is created next to the binary in `bin/` if missing.
 
 Note: The included binary in `bin/` was compiled on Ubuntu 25.10. If you are on a different distribution, version, architecture, or libc, please rebuild from source using the steps above.
 
+### ONNX Runtime (for ML move)
+
+The optional "ML move" feature uses an ONNX model and requires ONNX Runtime.
+
+- Download ONNX Runtime from the official releases:
+	- https://github.com/microsoft/onnxruntime/releases
+- Currently tested with:
+	- `onnxruntime-linux-x64-1.23.2.tgz`
+- Extract the archive so that its contents end up under:
+	- `lib/onnxruntime`
+
+For example:
+
+```bash
+cd /home/marc/dev/Mate  # project root
+tar -xzf /path/to/onnxruntime-linux-x64-1.23.2.tgz -C lib
+mv lib/onnxruntime-linux-x64-1.23.2 lib/onnxruntime
+```
+
+After that, re-run CMake and rebuild as described above. The normal engine (manual/smart/random moves) does not require ONNX Runtime; it is only needed when you want to use the ML-based move option.
+
 ## Main Menu
 
 - Start new game: loads the standard chess starting position

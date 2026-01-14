@@ -1,56 +1,64 @@
 // ML-based move integration for Mate chess engine
-// Uses a PyTorch (libtorch) model to suggest a move based on the
+// Uses an ONNX model to suggest a move based on the
 // current board position.
 
 #include "chess.h"
 
-#include <torch/script.h>
-#include <torch/torch.h>
+#include <onnxruntime_cxx_api.h>
 
+#include <algorithm>
+#include <array>
 #include <iostream>
-#include <vector>
+#include <memory>
+#include <numeric>
 
 namespace
 {
-    // Global model instance, loaded on first use.
-    torch::jit::script::Module g_ml_module;
-    bool g_ml_loaded = false;
+    // ONNX Runtime environment and session, loaded on first use.
+    Ort::Env g_ort_env{ORT_LOGGING_LEVEL_WARNING, "mate-ml"};
+    std::unique_ptr<Ort::Session> g_ort_session;
 
     // TODO: consider moving this to a config option
     const char *kDefaultModelPath =
-        "/home/marc/dev/Mate/torch_model/trained_models/chessy_testmodel.vlfpt";
+        "/home/marc/dev/Mate/torch_model/trained_models/simpleNet_torchscript.onnx";
 
-    bool load_ml_module_once()
+    bool load_onnx_session_once()
     {
-        if (g_ml_loaded)
+        if (g_ort_session)
         {
             return true;
         }
 
         try
         {
-            g_ml_module = torch::jit::load(kDefaultModelPath);
-            g_ml_loaded = true;
-            std::cout << "[ML] Loaded model from: " << kDefaultModelPath << '\n';
+            Ort::SessionOptions session_options;
+            session_options.SetIntraOpNumThreads(1);
+            // Use maximum graph optimization level provided by ONNX Runtime.
+            session_options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
+
+            g_ort_session = std::make_unique<Ort::Session>(g_ort_env, kDefaultModelPath, session_options);
+            std::cout << "[ML] Loaded ONNX model from: " << kDefaultModelPath << '\n';
         }
-        catch (const c10::Error &e)
+        catch (const Ort::Exception &e)
         {
-            std::cerr << "[ML] Error loading model from " << kDefaultModelPath << "\n";
+            std::cerr << "[ML] Error loading ONNX model from " << kDefaultModelPath << "\n";
             std::cerr << e.what() << '\n';
-            g_ml_loaded = false;
+            g_ort_session.reset();
+            return false;
         }
 
-        return g_ml_loaded;
+        return true;
     }
 
-    // Convert the current board to a tensor of shape (1, 6, 8, 8).
+    // Convert the current board to a flat input buffer of shape (1, 6, 8, 8).
     // Channels: 0=P, 1=R, 2=N, 3=B, 4=Q, 5=K.
     // Values: +1 for white pieces, -1 for black pieces.
-    // Layout matches the training pipeline: tensor[0, c, row, col]
+    // Layout matches the training pipeline: input[0, c, row, col]
     // where row=0 is rank 8 and row=7 is rank 1, col=0 is file A.
-    torch::Tensor board_to_tensor(chess &game)
+    std::array<float, 6 * 8 * 8> board_to_input(chess &game)
     {
-        auto tensor = torch::zeros({1, 6, 8, 8}, torch::dtype(torch::kFloat32));
+        std::array<float, 6 * 8 * 8> input{};
+        input.fill(0.0f);
 
         for (int fileIdx = 0; fileIdx < 8; ++fileIdx)
         {
@@ -97,12 +105,13 @@ namespace
 
                 if (channel >= 0)
                 {
-                    tensor.index_put_({0, channel, row, col}, sign);
+                    const int idx = channel * 64 + row * 8 + col;
+                    input[static_cast<size_t>(idx)] = sign;
                 }
             }
         }
 
-        return tensor;
+        return input;
     }
 
     // Map a flat index in [0, 63] to board coordinates (file, rank).
@@ -116,28 +125,91 @@ namespace
         return {file, rank};
     }
 
-    // Given the model's score tensor, try the best-scoring suggestions in
-    // descending order until a legal move is found.
-    bool scores_to_legal_move(chess &game, const torch::Tensor &scores, motionType &outMove)
+    // Run the ONNX model and fill scores[64] with output logits.
+    // NOTE: The exported model was trained with a fixed batch size of 256
+    // and expects input of shape (256, 6, 8, 8). We replicate the current
+    // board 256 times and only use the first prediction.
+    bool run_onnx(const std::array<float, 6 * 8 * 8> &input, std::array<float, 64> &scores)
     {
-        // Flatten in case the model returns shape (1, 64) instead of (64,).
-        torch::Tensor flat = scores.view(-1);
-        if (flat.numel() != 64)
+        if (!g_ort_session)
         {
-            std::cerr << "[ML] Expected 64 outputs, got " << flat.numel() << '\n';
             return false;
         }
 
-        // Sort indices for "from" (most negative first) and "to" (most positive first).
-        auto from_order = torch::argsort(flat, /*dim=*/0, /*descending=*/false);
-        auto to_order = torch::argsort(flat, /*dim=*/0, /*descending=*/true);
+        Ort::AllocatorWithDefaultOptions allocator;
+
+        // Assume single input and single output.
+        auto input_name = g_ort_session->GetInputNameAllocated(0, allocator);
+        auto output_name = g_ort_session->GetOutputNameAllocated(0, allocator);
+
+        constexpr int64_t kBatchSize = 256;
+        std::array<int64_t, 4> input_shape{kBatchSize, 6, 8, 8};
+        Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
+
+        // Create a batched input by repeating the single-board input
+        // kBatchSize times to match the model's fixed batch dimension.
+        std::vector<float> input_batched(static_cast<size_t>(kBatchSize) * input.size());
+        for (int64_t b = 0; b < kBatchSize; ++b)
+        {
+            std::copy(input.begin(), input.end(),
+                      input_batched.begin() + static_cast<size_t>(b) * input.size());
+        }
+
+        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+            mem_info,
+            input_batched.data(),
+            static_cast<size_t>(input_batched.size()),
+            input_shape.data(),
+            input_shape.size());
+
+        const char *input_names[] = {input_name.get()};
+        const char *output_names[] = {output_name.get()};
+
+        auto output_tensors = g_ort_session->Run(
+            Ort::RunOptions{nullptr},
+            input_names,
+            &input_tensor,
+            1,
+            output_names,
+            1);
+
+        if (output_tensors.empty() || !output_tensors[0].IsTensor())
+        {
+            std::cerr << "[ML] ONNX model did not return a tensor output." << std::endl;
+            return false;
+        }
+
+        float *out_data = output_tensors[0].GetTensorMutableData<float>();
+        // Assume shape (1, 64) or (64,).
+        for (size_t i = 0; i < scores.size(); ++i)
+        {
+            scores[i] = out_data[i];
+        }
+
+        return true;
+    }
+
+    // Given the model's score vector, try the best-scoring suggestions in
+    // descending order until a legal move is found.
+    bool scores_to_legal_move(chess &game, const std::array<float, 64> &scores, motionType &outMove)
+    {
+        // Build index arrays 0..63 and sort them by score.
+        std::array<int, 64> from_order{};
+        std::array<int, 64> to_order{};
+        std::iota(from_order.begin(), from_order.end(), 0);
+        std::iota(to_order.begin(), to_order.end(), 0);
+
+        std::sort(from_order.begin(), from_order.end(), [&](int a, int b)
+                  { return scores[static_cast<size_t>(a)] < scores[static_cast<size_t>(b)]; });
+        std::sort(to_order.begin(), to_order.end(), [&](int a, int b)
+                  { return scores[static_cast<size_t>(a)] > scores[static_cast<size_t>(b)]; });
 
         motionVector legalMoves = game.findAllLegalMoves();
 
-        for (int k = 0; k < flat.size(0); ++k)
+        for (std::size_t k = 0; k < from_order.size(); ++k)
         {
-            int idx_min = from_order[k].item<int64_t>();
-            int idx_max = to_order[k].item<int64_t>();
+            int idx_min = from_order[k];
+            int idx_max = to_order[k];
 
             boardCoordinateType fromCoord = index_to_coord(idx_min);
             boardCoordinateType toCoord = index_to_coord(idx_max);
@@ -174,17 +246,19 @@ namespace
 
 bool chess::mlMove()
 {
-    if (!load_ml_module_once())
+    if (!load_onnx_session_once())
     {
-        std::cout << "[ML] Could not load model; aborting ML move." << std::endl;
+        std::cout << "[ML] Could not load ONNX model; aborting ML move." << std::endl;
         return false;
     }
 
-    torch::Tensor position_tensor = board_to_tensor(*this);
-    std::vector<torch::jit::IValue> inputs;
-    inputs.emplace_back(position_tensor);
-
-    at::Tensor scores = g_ml_module.forward(inputs).toTensor();
+    auto input = board_to_input(*this);
+    std::array<float, 64> scores{};
+    if (!run_onnx(input, scores))
+    {
+        std::cout << "[ML] ONNX inference failed; aborting ML move." << std::endl;
+        return false;
+    }
 
     motionType mlMove;
     if (!scores_to_legal_move(*this, scores, mlMove))

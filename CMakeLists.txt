@@ -13,16 +13,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Enable debug symbols - comment these 2 lines if you dont need the debugger!
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-
-# Find Pytorch
-# https://docs.pytorch.org/cppdocs/installing.html
-# wget https://download.pytorch.org/libtorch/nightly/cpu/libtorch-shared-with-deps-latest.zip
-# unzip libtorch-shared-with-deps-latest.zip
-# currently tested with libtorch-cxx11-abi-shared-with-deps-2.7.1+cpu.zip
-set(CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/lib/libtorch")
-find_package(Torch REQUIRED)
-message(STATUS "Pytorch status:")
-message(STATUS "    libraries: ${TORCH_LIBRARIES}")
+set(CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/lib/onnxruntime")
+find_package(onnxruntime REQUIRED)
 
 # Set the output folder where your program will be created
 # CMAKE_SOURCE_DIR -> where to cmake was executed
@@ -56,5 +48,5 @@ find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME}
     ${SQLite3_LIBRARIES}
-    "${TORCH_LIBRARIES}"
+	onnxruntime::onnxruntime
 )
