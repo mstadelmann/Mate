@@ -3,11 +3,13 @@
 // current board position.
 
 #include "chess.h"
+#include "config.h"
 
 #include <onnxruntime_cxx_api.h>
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <numeric>
@@ -18,9 +20,19 @@ namespace
     Ort::Env g_ort_env{ORT_LOGGING_LEVEL_WARNING, "mate-ml"};
     std::unique_ptr<Ort::Session> g_ort_session;
 
-    // TODO: consider moving this to a config option
-    const char *kDefaultModelPath =
-        "/home/marc/dev/Mate/torch_model/trained_models/simpleNet_torchscript.onnx";
+    // Expand a path that may start with '~' to an absolute path using $HOME.
+    std::string expand_tilde(const std::string &path)
+    {
+        if (!path.empty() && path[0] == '~')
+        {
+            const char *home = std::getenv("HOME");
+            if (home && (path.size() == 1 || path[1] == '/'))
+            {
+                return std::string(home) + path.substr(1);
+            }
+        }
+        return path;
+    }
 
     bool load_onnx_session_once()
     {
@@ -31,17 +43,19 @@ namespace
 
         try
         {
+            const std::string model_path = expand_tilde(ml_model_path);
             Ort::SessionOptions session_options;
             session_options.SetIntraOpNumThreads(1);
             // Use maximum graph optimization level provided by ONNX Runtime.
             session_options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
 
-            g_ort_session = std::make_unique<Ort::Session>(g_ort_env, kDefaultModelPath, session_options);
-            std::cout << "[ML] Loaded ONNX model from: " << kDefaultModelPath << '\n';
+            g_ort_session = std::make_unique<Ort::Session>(g_ort_env, model_path.c_str(), session_options);
+            std::cout << "[ML] Loaded ONNX model from: " << model_path << '\n';
         }
         catch (const Ort::Exception &e)
         {
-            std::cerr << "[ML] Error loading ONNX model from " << kDefaultModelPath << "\n";
+            const std::string model_path = expand_tilde(ml_model_path);
+            std::cerr << "[ML] Error loading ONNX model from " << model_path << "\n";
             std::cerr << e.what() << '\n';
             g_ort_session.reset();
             return false;
@@ -246,6 +260,14 @@ namespace
 
 bool chess::mlMove()
 {
+    // ML-based move generation is currently only supported for black.
+    if (current_player != playerColor::black)
+    {
+        std::cout << "[ML] ML moves are only supported for the black player (current: "
+                  << current_player_string() << ")." << std::endl;
+        return false;
+    }
+
     if (!load_onnx_session_once())
     {
         std::cout << "[ML] Could not load ONNX model; aborting ML move." << std::endl;

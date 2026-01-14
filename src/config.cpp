@@ -276,6 +276,7 @@ bool use_AB_pruning = true;
 bool enable_debug_messages = false;
 std::string db_path = "games.db";
 int network_port = 5555;
+std::string ml_model_path = "~/dev/Mate/torch_model/trained_models/simpleNet_torchscript.onnx";
 
 static std::string getBinaryDir()
 {
@@ -326,6 +327,7 @@ bool save_config_to_json()
     out << "  \"db_path\": \"" << db_path << "\",\n";
     out << "  \"enable_debug_messages\": " << (enable_debug_messages ? "true" : "false") << ",\n";
     out << "  \"network_port\": " << network_port << ",\n";
+    out << "  \"ml_model_path\": \"" << ml_model_path << "\",\n";
     auto writeArray = [&out](const char *name, double a[8][8])
     {
         out << "  \"" << name << "\": [\n";
@@ -493,6 +495,7 @@ bool load_config_from_json()
     findString("db_path", db_path);
     findBool("enable_debug_messages", enable_debug_messages);
     findInt("network_port", network_port);
+    findString("ml_model_path", ml_model_path);
 
     parseArray(content, "pawnEvalWhite", pawnEvalWhite);
     parseArray(content, "pawnEvalBlack", pawnEvalBlack);
