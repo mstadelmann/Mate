@@ -221,3 +221,4 @@ In-game commands (network):
 - Ensure `libsqlite3-dev` (headers and library) is installed
 - If `config.json` is missing or malformed, Mate regenerates defaults
 - Run with a modern terminal that supports UTF-8 for best board rendering
+
