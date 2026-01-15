@@ -46,7 +46,7 @@ cmake --build buildCLI --config Debug -j6
 ./bin/Mate
 ```
 
-On first run, `config.json` is created next to the binary in `bin/` if missing.
+On first run, a `config.json` file is created at `~/.mate/config.json` if missing.
 
 Note: The included binary in `bin/` was compiled on Ubuntu 25.10. If you are on a different distribution, version, architecture, or libc, please rebuild from source using the steps above.
 
@@ -77,7 +77,7 @@ After that, re-run CMake and rebuild as described above. The normal engine (manu
 - Play with current board: starts a game from whatever position is currently loaded
 - Create custom board position: opens the Board Editor (see below)
 - Load game from database: lists saved games and lets you browse positions
-- Start network game: host a server or join one by IP/hostname
+- Network game: host a server or join one by IP/hostname
 - Quit: exits the program
 
 ## Game Menu (during a game)
@@ -109,7 +109,7 @@ Saving from the editor initializes minimal history and writes both the Moves and
 
 ## Database Persistence
 
-- File: a SQLite file in the current working directory
+- File: a SQLite file whose location is configured by `db_path` (default: `~/.mate/games.db`)
 - Tables:
 	- `Moves(GAME_NAME, ID, MOVE_TYPE, MOVED_BY, START_POS, DEST_POS, START_PIECE, DEST_PIECE, BOARD_COUNT)`
 	- `BOARD(GAME_NAME, ID, A1..H8)` — each square stored as a two-character code, e.g. `PW` (white pawn), `KB` (black king), `EN` (empty/none)
@@ -125,7 +125,7 @@ Saving from the editor initializes minimal history and writes both the Moves and
 - Minimax search depth configurable (`minMaxDepth`), with optional alpha–beta pruning (`use_AB_pruning`)
 - Runtime stats after smart move: analyzed nodes and pruned branches
 
-## Configuration (`bin/config.json`)
+## Configuration (`~/.mate/config.json`)
 
 Automatically written and loaded at startup. Key options:
 
@@ -163,7 +163,7 @@ Automatically written and loaded at startup. Key options:
 
 - **Debugging & Persistence**:
 	- `enable_debug_messages` (default false): prints additional info during moves/evaluation.
-	- `db_path` (default `games.db`): SQLite file path for saved games.
+	- `db_path` (default `~/.mate/games.db`): SQLite file path for saved games.
 
 - **Networking**:
 	- `network_port` (default 5555): TCP port used by both server and client.
@@ -177,9 +177,7 @@ Automatically written and loaded at startup. Key options:
 
 Formula (conceptual): total score = material + `position_gamma` × PST contribution.
 
-Edit [bin/config.json](bin/config.json), then rerun Mate to apply changes.
-
-Edit `bin/config.json`, then rerun Mate to apply changes.
+Edit `~/.mate/config.json`, then rerun Mate to apply changes.
 
 ## Tips
 
@@ -192,7 +190,7 @@ Edit `bin/config.json`, then rerun Mate to apply changes.
 
 Host a game (server):
 
-1. In Main Menu, choose Start network game → Host
+1. In Main Menu, choose Network game → Host
 2. Enter your display name and choose side (White/Black)
 3. Optionally set a server password (press Enter for none)
 4. The server announces `OPEN` (no password) or `LOCKED` (password required)
@@ -200,7 +198,7 @@ Host a game (server):
 
 Join a game (client):
 
-1. In Main Menu, choose Start network game → Join
+1. In Main Menu, choose Network game → Join
 2. Enter the server host (IP/hostname) and your display name
 3. If the server is `LOCKED`, you’ll be prompted for the password
 4. On success, the game starts with player names shown on the board
@@ -221,3 +219,4 @@ In-game commands (network):
 - Ensure `libsqlite3-dev` (headers and library) is installed
 - If `config.json` is missing or malformed, Mate regenerates defaults
 - Run with a modern terminal that supports UTF-8 for best board rendering
+

@@ -1,9 +1,8 @@
 # Specify the minimum version for CMake
 cmake_minimum_required(VERSION 3.12)
 
-# Project's name
 # this generates the variable PROJECT_NAME
-project(Mate VERSION 1.0)
+project(Mate VERSION 0.1.4)
 
 # Require a modern C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -33,6 +32,14 @@ SET(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
 
 # The following folder will be included
 include_directories("${PROJECT_SOURCE_DIR}")
+
+# Expose project version to C++ sources via preprocessor macros
+add_compile_definitions(
+	MATE_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+	MATE_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+	MATE_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+	MATE_VERSION="${PROJECT_VERSION}"
+)
 
 add_executable(${PROJECT_NAME}
 	${PROJECT_SOURCE_DIR}/src/main.cpp
