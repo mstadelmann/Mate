@@ -292,8 +292,7 @@ bool chess::mlMove()
     std::cout << "[ML] Executing move: "
               << mlMove.start_position.coord.file << mlMove.start_position.coord.rank
               << " -> "
-              << mlMove.dest_position.coord.file << mlMove.dest_position.coord.rank
-              << " (moved_by=" << movedByToString(mlMove.moved_by_whom) << ")" << std::endl;
+              << mlMove.dest_position.coord.file << mlMove.dest_position.coord.rank << std::endl;
 
     executeMove(mlMove);
     swapPlayers();
