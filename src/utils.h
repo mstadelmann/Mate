@@ -24,7 +24,7 @@ void printLogo(void);
     X(BoardEditor, "Board editor (set up custom board position)") \
     X(LoadFromDatabase, "Load game from database")                \
     X(PLAY, "Play with current board configuration")              \
-    X(StartNetworkGame, "Start network game")                     \
+    X(StartNetworkGame, "Network game")                           \
     X(Quit, "Quit")
 
 enum class MainMenuChoice
