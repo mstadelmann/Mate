@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.12)
 
 # Project's name
 # this generates the variable PROJECT_NAME
-project(Mate VERSION 0.1.0)
+project(Mate VERSION 0.1.1)
 
 # Require a modern C++ standard
 set(CMAKE_CXX_STANDARD 17)
