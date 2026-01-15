@@ -4,6 +4,7 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <cstdlib>
 
 // bad placement gives punishments, good placement gives bonuses
 // https://www.chessprogramming.org/Simplified_Evaluation_Function
@@ -274,9 +275,27 @@ int minValStart = 100000;
 int minMaxDepth = 3;
 bool use_AB_pruning = true;
 bool enable_debug_messages = false;
-std::string db_path = "games.db";
+std::string db_path = "~/.mate/games.db";
 int network_port = 5555;
 std::string ml_model_path = "~/dev/Mate/torch_model/trained_models/simpleNet_torchscript.onnx";
+
+static std::string expandUserPath(const std::string &path)
+{
+    if (path.empty() || path[0] != '~')
+        return path;
+
+    const char *home = std::getenv("HOME");
+    if (!home || home[0] == '\0')
+        return path;
+
+    if (path.size() == 1)
+        return std::string(home);
+
+    if (path[1] == '/')
+        return std::string(home) + path.substr(1);
+
+    return path;
+}
 
 static std::string getBinaryDir()
 {
@@ -292,6 +311,24 @@ static std::string getBinaryDir()
     return path.substr(0, pos);
 }
 
+static std::string getConfigFilePath()
+{
+    const char *home = std::getenv("HOME");
+    if (!home || home[0] == '\0')
+    {
+        return getBinaryDir() + "/config.json";
+    }
+
+    std::string dir = std::string(home) + "/.mate";
+    struct stat st;
+    if (stat(dir.c_str(), &st) != 0)
+    {
+        mkdir(dir.c_str(), 0700);
+    }
+
+    return dir + "/config.json";
+}
+
 static bool fileExists(const std::string &path)
 {
     struct stat st;
@@ -300,12 +337,14 @@ static bool fileExists(const std::string &path)
 
 void init_config_defaults()
 {
-    // Defaults already set above
+    // Defaults already set above; normalize any user paths
+    db_path = expandUserPath(db_path);
+    ml_model_path = expandUserPath(ml_model_path);
 }
 
 bool save_config_to_json()
 {
-    std::string path = getBinaryDir() + "/config.json";
+    std::string path = getConfigFilePath();
     std::ofstream out(path);
     if (!out)
         return false;
@@ -406,7 +445,7 @@ static bool parseArray(const std::string &content, const char *name, double a[8]
 
 bool load_config_from_json()
 {
-    std::string path = getBinaryDir() + "/config.json";
+    std::string path = getConfigFilePath();
     if (!fileExists(path))
         return false;
     std::ifstream in(path);
