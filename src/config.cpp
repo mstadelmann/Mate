@@ -6,6 +6,10 @@
 #include <unistd.h>
 #include <cstdlib>
 
+#ifndef MATE_SOURCE_DIR
+#define MATE_SOURCE_DIR ""
+#endif
+
 // bad placement gives punishments, good placement gives bonuses
 // https://www.chessprogramming.org/Simplified_Evaluation_Function
 
@@ -277,7 +281,7 @@ bool use_AB_pruning = true;
 bool enable_debug_messages = false;
 std::string db_path = "~/.mate/games.db";
 int network_port = 5555;
-std::string ml_model_path = "~/dev/Mate/torch_model/trained_models/simpleNet_torchscript.onnx";
+std::string ml_model_path;
 
 static std::string expandUserPath(const std::string &path)
 {
@@ -335,11 +339,44 @@ static bool fileExists(const std::string &path)
     return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
-void init_config_defaults()
+static std::string detectDefaultModelPath()
 {
-    // Defaults already set above; normalize any user paths
+    const std::string sourceDir = MATE_SOURCE_DIR;
+    if (!sourceDir.empty())
+    {
+        const std::string sourceCandidate = sourceDir + "/torch_model/trained_models/simpleNet_torchscript.onnx";
+        if (fileExists(sourceCandidate))
+            return sourceCandidate;
+    }
+
+    const std::string binaryDir = getBinaryDir();
+    if (!binaryDir.empty())
+    {
+        const std::string buildCandidate = binaryDir + "/../torch_model/trained_models/simpleNet_torchscript.onnx";
+        if (fileExists(buildCandidate))
+            return buildCandidate;
+
+        const std::string multiConfigCandidate = binaryDir + "/../../torch_model/trained_models/simpleNet_torchscript.onnx";
+        if (fileExists(multiConfigCandidate))
+            return multiConfigCandidate;
+    }
+
+    return std::string();
+}
+
+static void normalize_config_paths()
+{
     db_path = expandUserPath(db_path);
     ml_model_path = expandUserPath(ml_model_path);
+    if (ml_model_path.empty())
+    {
+        ml_model_path = detectDefaultModelPath();
+    }
+}
+
+void init_config_defaults()
+{
+    normalize_config_paths();
 }
 
 bool save_config_to_json()
@@ -548,5 +585,6 @@ bool load_config_from_json()
     parseArray(content, "evalQueenBlack", evalQueenBlack);
     parseArray(content, "kingEvalWhite", kingEvalWhite);
     parseArray(content, "kingEvalBlack", kingEvalBlack);
+    normalize_config_paths();
     return true;
 }

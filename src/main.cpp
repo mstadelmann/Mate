@@ -7,7 +7,7 @@
 
 void game_loop(chess &);
 
-int main(int argc, char **argv)
+int main()
 {
     init_config_defaults();
     if (!load_config_from_json())
@@ -144,8 +144,10 @@ void game_loop(chess &game)
             break;
         case GameMenuChoice::Undo:
             cout << "Undoing last move..." << endl;
-            game.reverseMove();
-            game.swapPlayers();
+            if (game.reverseMove())
+            {
+                game.swapPlayers();
+            }
             break;
         case GameMenuChoice::ListAllMoves:
             game.listLegalMoves();

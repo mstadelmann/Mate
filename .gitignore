@@ -1,4 +1,6 @@
 /buildCLI
+/build/
+.codex
 *.db
 .vscode
 ressources

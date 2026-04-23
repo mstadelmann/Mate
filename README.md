@@ -1,222 +1,197 @@
 # Mate
 
-Source Code: https://github.com/mstadelmann/Mate
+Mate is a terminal chess program with:
 
-Mate is a terminal chess engine and board editor with an interactive menu-driven UI, a very simple evaluation-based engine (minimax with optional alpha–beta pruning), SQLite persistence, optional ONNX-based AI moves, and network play with chat.
-
-It is designed to be fast to try, easy to play, and hackable for experimentation.
+- a menu-driven CLI
+- a board editor for custom positions
+- a simple minimax engine with optional alpha-beta pruning
+- SQLite save/load support
+- TCP network play with chat
+- optional ONNX-based move inference
 
 ![Board preview](assets/board.png)
 
-## Features
+## Highlights
 
-- New game and free play on any position
-- Board editor: place/remove pieces, reset, save position
-- Engine moves: random and smart (minimax with alpha–beta)
-- Legal move listing and move history display
-- Undo with full board/state snapshots (castling, en passant)
-- Save games to a SQLite DB, including full board snapshots per move
-- Browse and load games from the database interactively
-- Configurable evaluation and engine depth via `config.json`
-- Unicode board rendering in the terminal
-- Network play: host/join over TCP, player names on board, real-time chat
- - Optional ML move using an ONNX model (see [torch_model/torch_model.md](torch_model/torch_model.md) for details)
+- Start from the standard chess opening or from a custom board
+- Play manual, random, smart-engine, or optional ML-generated moves
+- Undo using full board/state snapshots
+- Save complete games and board snapshots to SQLite
+- Browse saved games interactively from the terminal
+- Host or join a network game with player names and chat
+- Build and test on GitHub Actions with a Linux CI workflow
 
-## Build & Run
+## Requirements
 
-Prerequisites (Linux):
+- C++17 compiler
+- CMake 3.16+
+- SQLite3 development headers and library
+- ONNX Runtime only when building with `MATE_ENABLE_ONNX=ON`
 
-1. Install a C++17 compiler, CMake, and SQLite3 dev libs:
+Ubuntu/Debian example:
 
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake libsqlite3-dev
 ```
 
-2. Configure and build:
+## Quick Start
+
+Configure and build:
 
 ```bash
-cmake -S . -B buildCLI
-cmake --build buildCLI --config Debug -j6
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
 ```
 
-3. Run:
+Run:
 
 ```bash
-./bin/Mate
+./build/Mate
 ```
 
-On first run, a `config.json` file is created at `~/.mate/config.json` if missing.
+On first launch, Mate creates `~/.mate/config.json` when it does not already exist.
 
-Note: The included binary in `bin/` was compiled on Ubuntu 25.10. If you are on a different distribution, version, architecture, or libc, please rebuild from source using the steps above.
+The repository still contains a prebuilt `bin/Mate`, but the supported and CI-verified path is a fresh local build from `./build/Mate`.
 
-### ONNX Runtime (for ML move)
+## Optional ML Support
 
-The optional "ML move" feature uses an ONNX model and requires ONNX Runtime.
+The default build does not require ONNX Runtime.
 
-- Download ONNX Runtime from the official releases:
-	- https://github.com/microsoft/onnxruntime/releases
-- Currently tested with:
-	- `onnxruntime-linux-x64-1.23.2.tgz`
-- Extract the archive so that its contents end up under:
-	- `lib/onnxruntime`
-
-For example:
+To enable ML moves:
 
 ```bash
-cd /home/marc/dev/Mate  # project root
-tar -xzf /path/to/onnxruntime-linux-x64-1.23.2.tgz -C lib
-mv lib/onnxruntime-linux-x64-1.23.2 lib/onnxruntime
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMATE_ENABLE_ONNX=ON \
+  -DCMAKE_PREFIX_PATH=/path/to/onnxruntime
+cmake --build build --parallel
 ```
 
-After that, re-run CMake and rebuild as described above. The normal engine (manual/smart/random moves) does not require ONNX Runtime; it is only needed when you want to use the ML-based move option.
+Notes:
+
+- CMake must be able to find `onnxruntimeConfig.cmake`
+- if the bundled model exists at `torch_model/trained_models/simpleNet_torchscript.onnx`, Mate auto-detects it
+- otherwise set `ml_model_path` in `~/.mate/config.json`
+- the current ML move integration only supports the black side
+
+Model and training notes live in [torch_model/torch_model.md](torch_model/torch_model.md).
 
 ## Main Menu
 
-- Start new game: loads the standard chess starting position
-- Play with current board: starts a game from whatever position is currently loaded
-- Create custom board position: opens the Board Editor (see below)
-- Load game from database: lists saved games and lets you browse positions
-- Network game: host a server or join one by IP/hostname
-- Quit: exits the program
+- `Start new game`: load the standard starting position
+- `Board editor`: create or modify a custom position
+- `Load game from database`: browse stored games and load a snapshot
+- `Play with current board configuration`: start from whatever board is currently loaded
+- `Network game`: host or join a TCP game
+- `Quit`: exit Mate
 
-## Game Menu (during a game)
+## In-Game Commands
 
-- Enter Manual Move: type moves like `E2 E4`
-- Run Smart Move: engine computes a move via minimax (`minMaxDepth`, alpha–beta optional)
-- Run Random Move: picks a random legal move
-- Undo Last Move: restores the previous board and game state
-- List all legal moves: shows legal moves for the current side
-- List game history: shows moves played so far
-- Write DB: saves the full game to DB
-- Help: shows menu options
-- Quit Game: return to Main Menu
+- `m`: enter a manual move like `E2 E4`
+- `s`: run the minimax engine
+- `p`: run an ML move when ML support is enabled
+- `r`: play a random legal move
+- `u`: undo the last move
+- `a`: list all legal moves
+- `l`: print move history
+- `w`: write the current game to the database
+- `h`: print the help menu
+- `q`: leave the game and return to the main menu
 
 ## Board Editor
 
-Interactive commands while editing:
+Commands:
 
-- `PLACE <piece> <color> <coord>`: place a piece (e.g., `PLACE K W E1`)
-	- Pieces: `K` (king), `Q` (queen), `R` (rook), `B` (bishop), `N` (knight), `P` (pawn)
-	- Colors: `W` (white), `B` (black)
-- `REMOVE <coord>`: remove any piece at the coordinate
-- `EMPTY`: clear the board
-- `DEFAULT`: reset to the standard starting position
-- `SAVE`: prompt for a name, snapshot the position as a new game, and store it in DB
-- `BACK`/`QUIT`: leave the editor
+- `PLACE <piece> <color> <coord>` for example `PLACE K W E1`
+- `REMOVE <coord>`
+- `EMPTY`
+- `DEFAULT`
+- `SAVE`
+- `BACK` or `QUIT`
 
-Saving from the editor initializes minimal history and writes both the Moves and BOARD snapshots to the database.
+Pieces:
 
-## Database Persistence
+- `K`, `Q`, `R`, `B`, `N`, `P`
 
-- File: a SQLite file whose location is configured by `db_path` (default: `~/.mate/games.db`)
-- Tables:
-	- `Moves(GAME_NAME, ID, MOVE_TYPE, MOVED_BY, START_POS, DEST_POS, START_PIECE, DEST_PIECE, BOARD_COUNT)`
-	- `BOARD(GAME_NAME, ID, A1..H8)` — each square stored as a two-character code, e.g. `PW` (white pawn), `KB` (black king), `EN` (empty/none)
-- Writing: use Game Menu → Write DB or Board Editor → SAVE
-- Loading: Main Menu → Load game from database
-	- Choose by number or name, then browse positions with left/right (`a`/`d` or arrow keys)
-	- Press Enter to load the currently shown snapshot
+Colors:
 
-## Engine & Evaluation
+- `W`, `B`
 
-- Move generation for all pieces, including castling, en passant, and promotion (to queen)
-- Board evaluation combines material values and piece-square tables
-- Minimax search depth configurable (`minMaxDepth`), with optional alpha–beta pruning (`use_AB_pruning`)
-- Runtime stats after smart move: analyzed nodes and pruned branches
+## Configuration
 
-## Configuration (`~/.mate/config.json`)
+Mate stores its runtime configuration in `~/.mate/config.json`.
 
-Automatically written and loaded at startup. Key options:
+Useful keys:
 
-- `pawnValue`, `rookValue`, `knightValue`, `bishopValue`, `queenValue`, `kingValue`: material values
-- `position_gamma`: weight for positional evaluation
 - `minMaxDepth`: search depth for smart moves
-- `use_AB_pruning`: enable/disable alpha–beta pruning
-- `enable_debug_messages`: print extra debug output
-- `network_port`: TCP port for hosting/joining network games (default: 5555)
-- Piece-square tables: `pawnEvalWhite/Black`, `knightEvalWhite/Black`, `bishopEvalWhite/Black`, `rookEvalWhite/Black`, `evalQueenWhite/Black`, `kingEvalWhite/Black`
+- `use_AB_pruning`: enable or disable alpha-beta pruning
+- `position_gamma`: weight applied to piece-square tables
+- `enable_debug_messages`: extra debug logging
+- `db_path`: SQLite database path
+- `network_port`: TCP port for host/join mode
+- `ml_model_path`: ONNX model path
 
-### Configuration Details
+Path notes:
 
-- **Material Values**: base piece scores used in evaluation.
-	- `pawnValue` (default 10), `knightValue` (30), `bishopValue` (30), `rookValue` (50), `queenValue` (90), `kingValue` (900).
-	- Higher values make the engine prefer preserving that piece type.
+- `db_path` and `ml_model_path` may use `~`
+- Mate expands those paths when loading the config
 
-- **Positional Weight**: scales piece-square table influence.
-	- `position_gamma` (default 1.0): final score ≈ material + `position_gamma` × positional.
-	- Increase to emphasize activity and placement; decrease to focus on material.
+## Database
 
-- **Search Settings**:
-	- `minMaxDepth` (default 3): search ply for smart moves; typical range 2–5 for responsiveness.
-	- `use_AB_pruning` (default true): enables alpha–beta pruning for faster search.
+By default, games are stored in `~/.mate/games.db`.
 
-- **Mate/Patt Scores**: terminal node values used internally.
-	- `earlyMattVal` (30000): high score for early checkmates.
-	- `finalMattVal` (20000): score for checkmates closer to the endgame.
-	- `finalPattVal` (10000): stalemate score; usually less than mate.
-	- These are internal heuristics; adjust only if you understand the evaluation behavior.
+Tables:
 
-- **Search Sentinel Bounds**: initial min/max values for evaluation.
-	- `maxValStart` (-100000), `minValStart` (100000): used as starting bounds in search.
-	- Normally do not change.
+- `Moves(GAME_NAME, ID, MOVE_TYPE, MOVED_BY, START_POS, DEST_POS, START_PIECE, DEST_PIECE, BOARD_COUNT)`
+- `BOARD(GAME_NAME, ID, A1..H8)`
 
-- **Debugging & Persistence**:
-	- `enable_debug_messages` (default false): prints additional info during moves/evaluation.
-	- `db_path` (default `~/.mate/games.db`): SQLite file path for saved games.
+Loading flow:
 
-- **Networking**:
-	- `network_port` (default 5555): TCP port used by both server and client.
-	- Change if the port is in use or blocked by firewall.
-
-- **Piece-Square Tables (PSTs)**:
-	- `pawnEvalWhite/Black`, `knightEvalWhite/Black`, `bishopEvalWhite/Black`, `rookEvalWhite/Black`, `evalQueenWhite/Black`, `kingEvalWhite/Black`.
-	- Each is an 8×8 array of doubles; higher values reward occupying that square.
-	- Arrays follow the engine’s orientation: top-left index is A1. Black tables are mirrored appropriately.
-	- Tuning PSTs changes style (e.g., centralization, development, king safety).
-
-Formula (conceptual): total score = material + `position_gamma` × PST contribution.
-
-Edit `~/.mate/config.json`, then rerun Mate to apply changes.
-
-## Tips
-
-- Manual moves are validated against generated legal moves
-- Unicode rendering may vary by terminal; black pawns may be drawn as a solid circle
-- If the DB already contains a game with the same name, saving will overwrite entries for that game
-
+- choose a game by number or exact name
+- browse snapshots with `a` and `d` or with the arrow keys
+- press Enter to load the currently displayed board
 
 ## Network Play
 
-Host a game (server):
+Host flow:
 
-1. In Main Menu, choose Network game → Host
-2. Enter your display name and choose side (White/Black)
-3. Optionally set a server password (press Enter for none)
-4. The server announces `OPEN` (no password) or `LOCKED` (password required)
-5. Share your host IP/hostname and the configured port with your opponent
+1. Choose `Network game`
+2. Select host mode
+3. Enter your username
+4. Pick white or black
+5. Optionally set a password
+6. Share your host/IP and port
 
-Join a game (client):
+Join flow:
 
-1. In Main Menu, choose Network game → Join
-2. Enter the server host (IP/hostname) and your display name
-3. If the server is `LOCKED`, you’ll be prompted for the password
-4. On success, the game starts with player names shown on the board
+1. Choose `Network game`
+2. Select join mode
+3. Enter the host/IP and your username
+4. Confirm the connection
+5. Provide the password if the host is locked
 
-In-game commands (network):
+While connected:
 
-- Moves: enter start and end squares like `E2 E4`
-- `a`: list all legal moves
-- `l`: show game history
-- `w`: write the current game to the database
-- `h`: show network help
-- `c`: send a chat message (works both while playing and while waiting)
-- `q`: quit the game
+- enter moves as `E2 E4`
+- use `c` to send chat messages
+- use `a`, `l`, `w`, `h`, `q` for the same helpers as local play
 
+## CI
 
-## Troubleshooting
+GitHub Actions now contains two workflows:
 
-- Ensure `libsqlite3-dev` (headers and library) is installed
-- If `config.json` is missing or malformed, Mate regenerates defaults
-- Run with a modern terminal that supports UTF-8 for best board rendering
+- `.github/workflows/ci.yml`: installs dependencies, builds Mate without ONNX, runs non-interactive core tests, and executes a CLI smoke test
+- `.github/workflows/version-bump.yml`: bumps the patch version on PR branch updates and the minor version on merge to the PR base branch
 
+## Known Limits
+
+- Loading or hand-crafting an arbitrary board snapshot does not reconstruct full historical move state; Mate conservatively disables castling and en passant unless the board is the standard starting position
+- terminal rendering assumes UTF-8 support for the chess glyphs
+- the ML path is optional, but the model must exist before ML moves can run
+
+## Project Layout
+
+- `src/`: engine, UI, networking, persistence, and config code
+- `torch_model/`: model assets, training scripts, and data prep helpers
+- `.github/workflows/`: CI and release automation

@@ -42,7 +42,7 @@ extern int network_port; // TCP port for network games
 // Path to the ONNX model used for ML moves (may start with '~').
 extern std::string ml_model_path;
 
-// Load/save config.json next to the binary
+// Load/save config.json under ~/.mate
 bool load_config_from_json();
 bool save_config_to_json();
 void init_config_defaults();

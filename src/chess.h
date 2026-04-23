@@ -134,9 +134,10 @@ private:
     bool black_checked;
     bool white_checkmate;
     bool black_checkmate;
+    bool board_is_standard_start() const;
 
     bool is_square_attacked(boardCoordinateType sq, playerColor byColor) const;
-    void update_castling_rights_on_move(const boardPositionType &startPos, const boardPositionType &destPos);
+    void update_castling_rights_on_move(const boardPositionType &startPos);
     void update_castling_rights_on_capture(const pieceType &captured, const boardCoordinateType &capturedCoord);
     void push_state_snapshot();
     void pop_state_snapshot();
@@ -172,7 +173,7 @@ public:
     boardCoordinateType chessCoordinatesFromString(const string &);
     bool currentlyChecked();
     boardCoordinateType findKing();
-    void reverseMove();
+    bool reverseMove();
     void listLegalMoves();
     string pieceTypeToChar(pieceType);
     int getPieceValue(pieceCode);
