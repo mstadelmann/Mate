@@ -673,7 +673,7 @@ int main(int argc, char *argv[])
             }
             else if (!try_parse_main_menu_command(input.cli_command, selection))
             {
-                cout << "Error: please enter a number between 1 and 6." << endl;
+                cout << "Error: invalid main menu selection." << endl;
                 continue;
             }
         }
