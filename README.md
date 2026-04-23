@@ -35,6 +35,12 @@ sudo apt update
 sudo apt install -y build-essential cmake libsqlite3-dev
 ```
 
+Arch Linux example:
+
+```bash
+sudo pacman -S --needed base-devel cmake sqlite
+```
+
 ## Quick Start
 
 Configure and build:
