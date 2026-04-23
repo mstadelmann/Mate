@@ -149,6 +149,8 @@ public:
     void init_game();
     void set_game_name(const std::string &name);
     void set_player_names(const std::string &whiteName, const std::string &blackName);
+    void set_current_player(playerColor color);
+    void clear_board();
     void load_starting_position();
     void printCurrentGame();
     string current_player_string() const;

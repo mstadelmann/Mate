@@ -4,6 +4,9 @@
 #include "database.h"
 #include "gui.h"
 #include "network.h"
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -159,6 +162,365 @@ namespace
             return true;
         default:
             return false;
+        }
+    }
+
+    bool wait_for_gui_action(ChessGui *gui, ChessGuiAction &action, int timeout_ms = 75)
+    {
+        if (gui == nullptr)
+        {
+            return false;
+        }
+
+        while (gui->is_open())
+        {
+            if (poll_chess_gui_action(gui, action))
+            {
+                return true;
+            }
+            ::usleep(static_cast<useconds_t>(timeout_ms * 1000));
+        }
+
+        return false;
+    }
+
+    void apply_board_to_game(chess &game, const boardType &board)
+    {
+        for (char file = 'A'; file <= 'H'; ++file)
+        {
+            const int file_index = file - 'A';
+            for (int rank = 1; rank <= 8; ++rank)
+            {
+                game.place_piece({file, rank}, board[static_cast<std::size_t>(file_index)][static_cast<std::size_t>(rank - 1)]);
+            }
+        }
+    }
+
+    void refresh_board_preview(chess &game, playerColor current_player)
+    {
+        game.set_current_player(current_player);
+        game.detectCheckmate();
+    }
+
+    std::string default_gui_username()
+    {
+        const char *user_env = std::getenv("USER");
+        if (user_env != nullptr && *user_env != '\0')
+        {
+            return user_env;
+        }
+        return "player";
+    }
+
+    std::string trim_copy(const std::string &text)
+    {
+        const auto is_ws = [](unsigned char ch)
+        {
+            return std::isspace(ch) != 0;
+        };
+
+        std::size_t begin = 0;
+        while (begin < text.size() && is_ws(static_cast<unsigned char>(text[begin])))
+        {
+            ++begin;
+        }
+
+        std::size_t end = text.size();
+        while (end > begin && is_ws(static_cast<unsigned char>(text[end - 1])))
+        {
+            --end;
+        }
+
+        return text.substr(begin, end - begin);
+    }
+
+    std::string piece_label(pieceType piece)
+    {
+        if (piece.piece == pieceCode::empty)
+        {
+            return "eraser";
+        }
+
+        return playerColorToString(piece.color) + " " + pieceCodeToString(piece.piece);
+    }
+
+    void run_gui_board_editor(chess &game, ChessGui *gui)
+    {
+        if (gui == nullptr)
+        {
+            game.board_editor();
+            return;
+        }
+
+        ChessGuiBoardEditorState editor_state;
+        editor_state.selected_piece = {pieceCode::pawn, playerColor::white};
+        editor_state.save_name = game.gameName();
+        editor_state.status_message = "Click a square to place the selected piece.";
+        set_chess_gui_mode(gui, ChessGuiMode::board_editor);
+        set_chess_gui_board_editor_state(gui, editor_state);
+        refresh_board_preview(game, playerColor::white);
+        sync_chess_gui(gui, game);
+
+        ChessGuiAction action;
+        while (wait_for_gui_action(gui, action))
+        {
+            switch (action.type)
+            {
+            case ChessGuiActionType::editor_board_click:
+            {
+                const ChessGuiBoardEditorState state = get_chess_gui_board_editor_state(gui);
+                game.place_piece(action.dest, state.selected_piece);
+                ChessGuiBoardEditorState next_state = state;
+                next_state.status_message = "Placed " + piece_label(state.selected_piece) + " on " + std::string(1, action.dest.file) + std::to_string(action.dest.rank) + ".";
+                set_chess_gui_board_editor_state(gui, next_state);
+                refresh_board_preview(game, playerColor::white);
+                sync_chess_gui(gui, game);
+                break;
+            }
+            case ChessGuiActionType::editor_clear_board:
+            {
+                game.clear_board();
+                ChessGuiBoardEditorState state = get_chess_gui_board_editor_state(gui);
+                state.status_message = "Board cleared.";
+                set_chess_gui_board_editor_state(gui, state);
+                refresh_board_preview(game, playerColor::white);
+                sync_chess_gui(gui, game);
+                break;
+            }
+            case ChessGuiActionType::editor_default_board:
+            {
+                game.load_starting_position();
+                ChessGuiBoardEditorState state = get_chess_gui_board_editor_state(gui);
+                state.status_message = "Restored the default starting position.";
+                set_chess_gui_board_editor_state(gui, state);
+                refresh_board_preview(game, playerColor::white);
+                sync_chess_gui(gui, game);
+                break;
+            }
+            case ChessGuiActionType::editor_save_board:
+            {
+                ChessGuiBoardEditorState state = get_chess_gui_board_editor_state(gui);
+                const std::string save_name = trim_copy(state.save_name);
+                if (save_name.empty())
+                {
+                    state.status_message = "Enter a save name before writing to the database.";
+                    set_chess_gui_board_editor_state(gui, state);
+                    break;
+                }
+
+                game.init_game();
+                game.set_game_name(save_name);
+                store_to_DB(game);
+                state.save_name = save_name;
+                state.status_message = "Saved '" + save_name + "' to the database.";
+                set_chess_gui_board_editor_state(gui, state);
+                refresh_board_preview(game, playerColor::white);
+                sync_chess_gui(gui, game);
+                break;
+            }
+            case ChessGuiActionType::editor_back:
+                set_chess_gui_mode(gui, ChessGuiMode::main_menu);
+                return;
+            default:
+                break;
+            }
+        }
+    }
+
+    struct DatabaseBrowserSession
+    {
+        std::vector<DatabaseGameSummary> games;
+        int selected_game_index = 0;
+        int selected_snapshot_index = 0;
+        std::vector<boardType> boards;
+        std::vector<std::string> move_info;
+        boardType original_board{};
+        playerColor original_player = playerColor::white;
+    };
+
+    bool refresh_database_browser(chess &game, ChessGui *gui, DatabaseBrowserSession &session, std::string &error_message)
+    {
+        ChessGuiDatabaseState state;
+        for (const auto &entry : session.games)
+        {
+            state.games.push_back({entry.name, entry.move_count});
+        }
+
+        if (session.games.empty())
+        {
+            state.selected_game_index = -1;
+            state.snapshot_count = 0;
+            state.status_message = error_message.empty() ? "No saved games found in the database." : error_message;
+            set_chess_gui_database_state(gui, state);
+            sync_chess_gui(gui, game);
+            return false;
+        }
+
+        session.selected_game_index = std::clamp(session.selected_game_index, 0, static_cast<int>(session.games.size()) - 1);
+        const std::string selected_name = session.games[static_cast<std::size_t>(session.selected_game_index)].name;
+
+        if (!load_database_game_snapshots(selected_name, session.boards, session.move_info, error_message))
+        {
+            state.selected_game_index = session.selected_game_index;
+            state.snapshot_count = 0;
+            state.status_message = error_message;
+            set_chess_gui_database_state(gui, state);
+            sync_chess_gui(gui, game);
+            return false;
+        }
+
+        session.selected_snapshot_index = std::clamp(session.selected_snapshot_index, 0, static_cast<int>(session.boards.size()) - 1);
+        apply_board_to_game(game, session.boards[static_cast<std::size_t>(session.selected_snapshot_index)]);
+        refresh_board_preview(game, (session.selected_snapshot_index % 2 == 0) ? playerColor::white : playerColor::black);
+
+        state.selected_game_index = session.selected_game_index;
+        state.selected_snapshot_index = session.selected_snapshot_index;
+        state.snapshot_count = static_cast<int>(session.boards.size());
+        state.status_message = "Previewing '" + selected_name + "'.";
+        if (session.selected_snapshot_index < static_cast<int>(session.move_info.size()))
+        {
+            state.current_move_label = session.move_info[static_cast<std::size_t>(session.selected_snapshot_index)];
+        }
+
+        set_chess_gui_database_state(gui, state);
+        sync_chess_gui(gui, game);
+        return true;
+    }
+
+    void run_gui_database_browser(chess &game, ChessGui *gui)
+    {
+        if (gui == nullptr)
+        {
+            LoadFromDatabase(game);
+            return;
+        }
+
+        DatabaseBrowserSession session;
+        session.original_board = game.board();
+        session.original_player = game.current_player_color();
+
+        std::string error_message;
+        list_database_games(session.games, error_message);
+
+        set_chess_gui_mode(gui, ChessGuiMode::database_browser);
+        refresh_database_browser(game, gui, session, error_message);
+
+        ChessGuiAction action;
+        while (wait_for_gui_action(gui, action))
+        {
+            if (action.type == ChessGuiActionType::database_selection_changed)
+            {
+                const ChessGuiDatabaseState state = get_chess_gui_database_state(gui);
+                session.selected_game_index = state.selected_game_index;
+                session.selected_snapshot_index = state.selected_snapshot_index;
+                refresh_database_browser(game, gui, session, error_message);
+            }
+            else if (action.type == ChessGuiActionType::database_load_snapshot)
+            {
+                ChessGuiDatabaseState state = get_chess_gui_database_state(gui);
+                if (state.snapshot_count > 0)
+                {
+                    state.status_message = "Loaded the previewed board into the current session.";
+                    set_chess_gui_database_state(gui, state);
+                }
+                set_chess_gui_mode(gui, ChessGuiMode::main_menu);
+                return;
+            }
+            else if (action.type == ChessGuiActionType::database_back)
+            {
+                apply_board_to_game(game, session.original_board);
+                refresh_board_preview(game, session.original_player);
+                sync_chess_gui(gui, game);
+                set_chess_gui_mode(gui, ChessGuiMode::main_menu);
+                return;
+            }
+        }
+    }
+
+    void run_gui_network_setup(chess &game, ChessGui *gui)
+    {
+        if (gui == nullptr)
+        {
+            return;
+        }
+
+        ChessGuiNetworkState state;
+        state.username = default_gui_username();
+        state.status_message = "Choose Host or Join, then press Start.";
+        set_chess_gui_mode(gui, ChessGuiMode::network_setup);
+        set_chess_gui_network_state(gui, state);
+        sync_chess_gui(gui, game);
+
+        ChessGuiAction action;
+        while (wait_for_gui_action(gui, action))
+        {
+            if (action.type == ChessGuiActionType::network_back)
+            {
+                set_chess_gui_mode(gui, ChessGuiMode::main_menu);
+                return;
+            }
+
+            if (action.type != ChessGuiActionType::network_submit)
+            {
+                continue;
+            }
+
+            state = get_chess_gui_network_state(gui);
+            state.username = trim_copy(state.username);
+            state.host = trim_copy(state.host);
+            if (state.username.empty())
+            {
+                state.status_message = "Enter a username before starting a network game.";
+                set_chess_gui_network_state(gui, state);
+                continue;
+            }
+            if (state.role == ChessGuiNetworkRole::join && state.host.empty())
+            {
+                state.status_message = "Enter the host IP or hostname before joining.";
+                set_chess_gui_network_state(gui, state);
+                continue;
+            }
+
+            const uint16_t port = static_cast<uint16_t>(network_port);
+            NetConnection conn;
+            set_chess_gui_mode(gui, ChessGuiMode::busy);
+
+            if (state.role == ChessGuiNetworkRole::host)
+            {
+                state.waiting_for_peer = true;
+                state.status_message = "Waiting for a player on port " + std::to_string(port) + "...";
+                set_chess_gui_network_state(gui, state);
+                sync_chess_gui(gui, game);
+
+                if (!start_server(port, state.username, state.host_plays_white, state.password, conn))
+                {
+                    state.waiting_for_peer = false;
+                    state.status_message = "Failed to start the server or accept a client.";
+                    set_chess_gui_network_state(gui, state);
+                    set_chess_gui_mode(gui, ChessGuiMode::network_setup);
+                    continue;
+                }
+            }
+            else
+            {
+                state.status_message = "Joining " + state.host + ":" + std::to_string(port) + "...";
+                set_chess_gui_network_state(gui, state);
+                sync_chess_gui(gui, game);
+
+                std::string connect_error;
+                if (!connect_client(state.host, port, state.username, state.password, conn, connect_error))
+                {
+                    state.status_message = connect_error.empty() ? "Could not join the network game." : connect_error;
+                    set_chess_gui_network_state(gui, state);
+                    set_chess_gui_mode(gui, ChessGuiMode::network_setup);
+                    continue;
+                }
+            }
+
+            run_network_game(game, conn, gui);
+            close_connection(conn);
+            set_chess_gui_mode(gui, ChessGuiMode::main_menu);
+            return;
         }
     }
 
@@ -325,6 +687,12 @@ int main(int argc, char *argv[])
             break;
         case MainMenuChoice::StartNetworkGame:
         {
+            if (gui != nullptr)
+            {
+                run_gui_network_setup(game, gui.get());
+                break;
+            }
+
             set_chess_gui_mode(gui.get(), ChessGuiMode::busy);
             sync_chess_gui(gui.get(), game);
             cout << "\nNetwork mode selected." << endl;
@@ -386,15 +754,25 @@ int main(int argc, char *argv[])
             game_loop(game, gui.get());
             break;
         case MainMenuChoice::BoardEditor:
-            set_chess_gui_mode(gui.get(), ChessGuiMode::busy);
-            sync_chess_gui(gui.get(), game);
-            game.board_editor();
+            if (gui != nullptr)
+            {
+                run_gui_board_editor(game, gui.get());
+            }
+            else
+            {
+                game.board_editor();
+            }
             break;
         case MainMenuChoice::LoadFromDatabase:
-            set_chess_gui_mode(gui.get(), ChessGuiMode::busy);
-            sync_chess_gui(gui.get(), game);
-            cout << "\nLoading game from database..." << endl;
-            LoadFromDatabase(game);
+            if (gui != nullptr)
+            {
+                run_gui_database_browser(game, gui.get());
+            }
+            else
+            {
+                cout << "\nLoading game from database..." << endl;
+                LoadFromDatabase(game);
+            }
             break;
         case MainMenuChoice::Quit:
             cout << "\nQuitting." << endl;

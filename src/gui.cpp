@@ -47,6 +47,21 @@ namespace
         const char *label;
     };
 
+    struct PaletteSpec
+    {
+        pieceType piece;
+        const char *label;
+    };
+
+    enum class TextInputField
+    {
+        none,
+        editor_save_name,
+        network_username,
+        network_host,
+        network_password
+    };
+
     struct MenuSpec
     {
         ChessGuiActionType action;
@@ -69,6 +84,45 @@ namespace
         {ChessGuiActionType::list_moves, "Moves"},
         {ChessGuiActionType::write_db, "Save"},
         {ChessGuiActionType::quit_game, "Quit"},
+    }};
+
+    constexpr std::array<PaletteSpec, 13> kEditorPalette{{
+        {{pieceCode::pawn, playerColor::white}, "White Pawn"},
+        {{pieceCode::knight, playerColor::white}, "White Knight"},
+        {{pieceCode::bishop, playerColor::white}, "White Bishop"},
+        {{pieceCode::rook, playerColor::white}, "White Rook"},
+        {{pieceCode::queen, playerColor::white}, "White Queen"},
+        {{pieceCode::king, playerColor::white}, "White King"},
+        {{pieceCode::pawn, playerColor::black}, "Black Pawn"},
+        {{pieceCode::knight, playerColor::black}, "Black Knight"},
+        {{pieceCode::bishop, playerColor::black}, "Black Bishop"},
+        {{pieceCode::rook, playerColor::black}, "Black Rook"},
+        {{pieceCode::queen, playerColor::black}, "Black Queen"},
+        {{pieceCode::king, playerColor::black}, "Black King"},
+        {{pieceCode::empty, playerColor::none}, "Eraser"},
+    }};
+
+    constexpr std::array<ButtonSpec, 4> kEditorButtons{{
+        {ChessGuiActionType::editor_clear_board, "Clear"},
+        {ChessGuiActionType::editor_default_board, "Default"},
+        {ChessGuiActionType::editor_save_board, "Save"},
+        {ChessGuiActionType::editor_back, "Back"},
+    }};
+
+    constexpr std::array<ButtonSpec, 6> kDatabaseButtons{{
+        {ChessGuiActionType::database_selection_changed, "Prev Game"},
+        {ChessGuiActionType::database_selection_changed, "Next Game"},
+        {ChessGuiActionType::database_selection_changed, "Prev Board"},
+        {ChessGuiActionType::database_selection_changed, "Next Board"},
+        {ChessGuiActionType::database_load_snapshot, "Load"},
+        {ChessGuiActionType::database_back, "Back"},
+    }};
+
+    constexpr std::array<const char *, 2> kNetworkRoleLabels{{"Host", "Join"}};
+    constexpr std::array<const char *, 2> kNetworkColorLabels{{"White", "Black"}};
+    constexpr std::array<ButtonSpec, 2> kNetworkButtons{{
+        {ChessGuiActionType::network_submit, "Start"},
+        {ChessGuiActionType::network_back, "Back"},
     }};
 
     struct Layout
@@ -572,6 +626,238 @@ namespace
         return "Board is stable";
     }
 
+    bool same_piece(pieceType left, pieceType right)
+    {
+        return left.piece == right.piece && left.color == right.color;
+    }
+
+    bool game_button_enabled(ChessGuiMode mode, ChessGuiActionType action)
+    {
+        if (mode == ChessGuiMode::local_game)
+        {
+            return true;
+        }
+
+        if (mode != ChessGuiMode::network_game)
+        {
+            return false;
+        }
+
+        switch (action)
+        {
+        case ChessGuiActionType::list_moves:
+        case ChessGuiActionType::show_history:
+        case ChessGuiActionType::write_db:
+        case ChessGuiActionType::quit_game:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    std::string trimmed_copy(const std::string &text)
+    {
+        const auto is_ws = [](unsigned char ch)
+        {
+            return std::isspace(ch) != 0;
+        };
+
+        std::size_t begin = 0;
+        while (begin < text.size() && is_ws(static_cast<unsigned char>(text[begin])))
+        {
+            ++begin;
+        }
+
+        std::size_t end = text.size();
+        while (end > begin && is_ws(static_cast<unsigned char>(text[end - 1])))
+        {
+            --end;
+        }
+
+        return text.substr(begin, end - begin);
+    }
+
+    void pop_utf8_character(std::string &text)
+    {
+        if (text.empty())
+        {
+            return;
+        }
+
+        std::size_t index = text.size() - 1;
+        while (index > 0 && (static_cast<unsigned char>(text[index]) & 0xC0U) == 0x80U)
+        {
+            --index;
+        }
+        text.erase(index);
+    }
+
+    std::string masked_password(const std::string &password)
+    {
+        return std::string(password.size(), '*');
+    }
+
+    std::string color_name(playerColor color)
+    {
+        switch (color)
+        {
+        case playerColor::white:
+            return "White";
+        case playerColor::black:
+            return "Black";
+        default:
+            return "None";
+        }
+    }
+
+    std::string editor_piece_label(pieceType piece)
+    {
+        if (piece.piece == pieceCode::empty)
+        {
+            return "Eraser";
+        }
+
+        return color_name(piece.color) + " " + pieceCodeToString(piece.piece);
+    }
+
+    std::array<SDL_Rect, kEditorPalette.size()> compute_editor_palette_rects(const Layout &layout)
+    {
+        std::array<SDL_Rect, kEditorPalette.size()> rects{};
+        const int gap = 8;
+        const int columns = 3;
+        const int cell_width = std::max(58, (layout.panel_rect.w - (gap * (columns - 1))) / columns);
+        const int cell_height = 58;
+        const int start_y = layout.info_rect.y + layout.info_rect.h + 12;
+
+        for (std::size_t i = 0; i < rects.size(); ++i)
+        {
+            const int row = static_cast<int>(i) / columns;
+            const int column = static_cast<int>(i) % columns;
+            rects[i] = SDL_Rect{
+                layout.panel_rect.x + (column * (cell_width + gap)),
+                start_y + (row * (cell_height + gap)),
+                cell_width,
+                cell_height};
+        }
+
+        return rects;
+    }
+
+    std::array<SDL_Rect, kEditorButtons.size()> compute_editor_button_rects(const Layout &layout)
+    {
+        std::array<SDL_Rect, kEditorButtons.size()> rects{};
+        const int gap = 10;
+        const int columns = 2;
+        const int width = (layout.panel_rect.w - gap) / columns;
+        const int height = 42;
+        const int start_y = layout.footer_rect.y - ((height * 2) + gap) - 12;
+
+        for (std::size_t i = 0; i < rects.size(); ++i)
+        {
+            const int row = static_cast<int>(i) / columns;
+            const int column = static_cast<int>(i) % columns;
+            rects[i] = SDL_Rect{
+                layout.panel_rect.x + (column * (width + gap)),
+                start_y + (row * (height + gap)),
+                width,
+                height};
+        }
+
+        return rects;
+    }
+
+    SDL_Rect compute_editor_save_field_rect(const Layout &layout)
+    {
+        return SDL_Rect{
+            layout.info_rect.x,
+            layout.info_rect.y + layout.info_rect.h - 38,
+            layout.info_rect.w,
+            34};
+    }
+
+    std::array<SDL_Rect, kDatabaseButtons.size()> compute_database_button_rects(const Layout &layout)
+    {
+        std::array<SDL_Rect, kDatabaseButtons.size()> rects{};
+        const int gap = 10;
+        const int columns = 2;
+        const int width = (layout.panel_rect.w - gap) / columns;
+        const int height = 46;
+        const int start_y = layout.info_rect.y + layout.info_rect.h + 20;
+
+        for (std::size_t i = 0; i < rects.size(); ++i)
+        {
+            const int row = static_cast<int>(i) / columns;
+            const int column = static_cast<int>(i) % columns;
+            rects[i] = SDL_Rect{
+                layout.panel_rect.x + (column * (width + gap)),
+                start_y + (row * (height + gap)),
+                width,
+                height};
+        }
+
+        return rects;
+    }
+
+    std::array<SDL_Rect, 2> compute_network_role_rects(const Layout &layout)
+    {
+        std::array<SDL_Rect, 2> rects{};
+        const int gap = 10;
+        const int width = (layout.panel_rect.w - gap) / 2;
+        const int height = 36;
+        const int y = layout.info_rect.y + 44;
+        rects[0] = SDL_Rect{layout.panel_rect.x, y, width, height};
+        rects[1] = SDL_Rect{layout.panel_rect.x + width + gap, y, width, height};
+        return rects;
+    }
+
+    std::array<SDL_Rect, 2> compute_network_color_rects(const Layout &layout)
+    {
+        std::array<SDL_Rect, 2> rects{};
+        const int gap = 10;
+        const int width = (layout.panel_rect.w - gap) / 2;
+        const int height = 36;
+        const int y = layout.info_rect.y + 220;
+        rects[0] = SDL_Rect{layout.panel_rect.x, y, width, height};
+        rects[1] = SDL_Rect{layout.panel_rect.x + width + gap, y, width, height};
+        return rects;
+    }
+
+    SDL_Rect compute_network_username_rect(const Layout &layout)
+    {
+        return SDL_Rect{layout.panel_rect.x, layout.info_rect.y + 94, layout.panel_rect.w, 38};
+    }
+
+    SDL_Rect compute_network_host_rect(const Layout &layout)
+    {
+        return SDL_Rect{layout.panel_rect.x, layout.info_rect.y + 148, layout.panel_rect.w, 38};
+    }
+
+    SDL_Rect compute_network_password_rect(const Layout &layout)
+    {
+        return SDL_Rect{layout.panel_rect.x, layout.info_rect.y + 274, layout.panel_rect.w, 38};
+    }
+
+    std::array<SDL_Rect, kNetworkButtons.size()> compute_network_button_rects(const Layout &layout)
+    {
+        std::array<SDL_Rect, kNetworkButtons.size()> rects{};
+        const int gap = 10;
+        const int width = (layout.panel_rect.w - gap) / 2;
+        const int height = 42;
+        const int y = layout.footer_rect.y - height - 8;
+        rects[0] = SDL_Rect{layout.panel_rect.x, y, width, height};
+        rects[1] = SDL_Rect{layout.panel_rect.x + width + gap, y, width, height};
+        return rects;
+    }
+
+    SDL_Rect inset_rect(SDL_Rect rect, int amount)
+    {
+        rect.x += amount;
+        rect.y += amount;
+        rect.w -= amount * 2;
+        rect.h -= amount * 2;
+        return rect;
+    }
+
     Layout compute_layout(int width, int height)
     {
         Layout layout;
@@ -793,6 +1079,46 @@ namespace
             hovered_button_index_ = -1;
             pressed_menu_index_ = -1;
             hovered_menu_index_ = -1;
+            active_text_field_ = TextInputField::none;
+        }
+
+        void set_board_editor_state(const ChessGuiBoardEditorState &state) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            board_editor_state_ = state;
+            title_dirty_ = true;
+        }
+
+        ChessGuiBoardEditorState board_editor_state() const override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return board_editor_state_;
+        }
+
+        void set_database_state(const ChessGuiDatabaseState &state) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            database_state_ = state;
+            title_dirty_ = true;
+        }
+
+        ChessGuiDatabaseState database_state() const override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return database_state_;
+        }
+
+        void set_network_state(const ChessGuiNetworkState &state) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            network_state_ = state;
+            title_dirty_ = true;
+        }
+
+        ChessGuiNetworkState network_state() const override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return network_state_;
         }
 
         bool poll_action(ChessGuiAction &action) override
@@ -860,6 +1186,7 @@ namespace
             }
 
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+            SDL_StartTextInput();
 
             std::unique_ptr<FontRenderer> font_renderer(new FontRenderer(renderer));
             std::string font_error;
@@ -894,6 +1221,10 @@ namespace
 
                 GuiSnapshot snapshot_copy{make_empty_board()};
                 ChessGuiMode mode_copy = ChessGuiMode::main_menu;
+                ChessGuiBoardEditorState editor_state_copy;
+                ChessGuiDatabaseState database_state_copy;
+                ChessGuiNetworkState network_state_copy;
+                TextInputField active_text_field = TextInputField::none;
                 bool dragging_copy = false;
                 boardCoordinateType drag_from_copy{'A', 1};
                 pieceType drag_piece_copy{pieceCode::empty, playerColor::none};
@@ -908,6 +1239,10 @@ namespace
                     std::lock_guard<std::mutex> lock(mutex_);
                     snapshot_copy = snapshot_;
                     mode_copy = mode_;
+                    editor_state_copy = board_editor_state_;
+                    database_state_copy = database_state_;
+                    network_state_copy = network_state_;
+                    active_text_field = active_text_field_;
                     dragging_copy = dragging_;
                     drag_from_copy = drag_from_;
                     drag_piece_copy = drag_piece_;
@@ -931,6 +1266,10 @@ namespace
                                 *font_renderer,
                                 snapshot_copy,
                                 mode_copy,
+                                editor_state_copy,
+                                database_state_copy,
+                                network_state_copy,
+                                active_text_field,
                                 dragging_copy,
                                 drag_from_copy,
                                 drag_piece_copy,
@@ -944,10 +1283,56 @@ namespace
             }
 
             font_renderer.reset();
+            SDL_StopTextInput();
             SDL_DestroyRenderer(renderer);
             SDL_DestroyWindow(window);
             SDL_Quit();
             open_.store(false);
+        }
+
+        std::string *active_text_field_ptr_locked()
+        {
+            switch (active_text_field_)
+            {
+            case TextInputField::editor_save_name:
+                return &board_editor_state_.save_name;
+            case TextInputField::network_username:
+                return &network_state_.username;
+            case TextInputField::network_host:
+                return &network_state_.host;
+            case TextInputField::network_password:
+                return &network_state_.password;
+            case TextInputField::none:
+            default:
+                return nullptr;
+            }
+        }
+
+        void cycle_text_field_locked()
+        {
+            if (mode_ == ChessGuiMode::board_editor)
+            {
+                active_text_field_ = TextInputField::editor_save_name;
+                return;
+            }
+
+            if (mode_ == ChessGuiMode::network_setup)
+            {
+                switch (active_text_field_)
+                {
+                case TextInputField::network_username:
+                    active_text_field_ = (network_state_.role == ChessGuiNetworkRole::join) ? TextInputField::network_host : TextInputField::network_password;
+                    break;
+                case TextInputField::network_host:
+                    active_text_field_ = TextInputField::network_password;
+                    break;
+                case TextInputField::network_password:
+                case TextInputField::none:
+                default:
+                    active_text_field_ = TextInputField::network_username;
+                    break;
+                }
+            }
         }
 
         void handle_event(const SDL_Event &event, SDL_Window *window)
@@ -958,6 +1343,33 @@ namespace
             const Layout layout = compute_layout(width, height);
 
             std::lock_guard<std::mutex> lock(mutex_);
+
+            if (event.type == SDL_TEXTINPUT)
+            {
+                std::string *field = active_text_field_ptr_locked();
+                if (field != nullptr && mode_ != ChessGuiMode::busy)
+                {
+                    field->append(event.text.text);
+                }
+                return;
+            }
+
+            if (event.type == SDL_KEYDOWN)
+            {
+                if (event.key.keysym.sym == SDLK_BACKSPACE)
+                {
+                    std::string *field = active_text_field_ptr_locked();
+                    if (field != nullptr)
+                    {
+                        pop_utf8_character(*field);
+                    }
+                }
+                else if (event.key.keysym.sym == SDLK_TAB)
+                {
+                    cycle_text_field_locked();
+                }
+                return;
+            }
 
             if (event.type == SDL_MOUSEMOTION)
             {
@@ -973,8 +1385,8 @@ namespace
                 return;
             }
 
-            const int mouse_x = (event.type == SDL_MOUSEBUTTONDOWN) ? event.button.x : event.button.x;
-            const int mouse_y = (event.type == SDL_MOUSEBUTTONDOWN) ? event.button.y : event.button.y;
+            const int mouse_x = event.button.x;
+            const int mouse_y = event.button.y;
             drag_mouse_x_ = mouse_x;
             drag_mouse_y_ = mouse_y;
             hovered_menu_index_ = menu_index_at(layout, mouse_x, mouse_y);
@@ -1006,13 +1418,47 @@ namespace
                 }
 
                 const int button_index = button_index_at(layout, mouse_x, mouse_y);
-                if (mode_ == ChessGuiMode::local_game && button_index >= 0)
+                if ((mode_ == ChessGuiMode::local_game || mode_ == ChessGuiMode::network_game) &&
+                    button_index >= 0 &&
+                    game_button_enabled(mode_, kButtons[static_cast<std::size_t>(button_index)].action))
                 {
                     pressed_button_index_ = button_index;
                     return;
                 }
 
-                if (mode_ != ChessGuiMode::local_game)
+                if (mode_ == ChessGuiMode::board_editor)
+                {
+                    if (point_in_rect(mouse_x, mouse_y, compute_editor_save_field_rect(layout)))
+                    {
+                        active_text_field_ = TextInputField::editor_save_name;
+                        return;
+                    }
+                }
+                else if (mode_ == ChessGuiMode::network_setup)
+                {
+                    if (point_in_rect(mouse_x, mouse_y, compute_network_username_rect(layout)))
+                    {
+                        active_text_field_ = TextInputField::network_username;
+                        return;
+                    }
+                    if (network_state_.role == ChessGuiNetworkRole::join &&
+                        point_in_rect(mouse_x, mouse_y, compute_network_host_rect(layout)))
+                    {
+                        active_text_field_ = TextInputField::network_host;
+                        return;
+                    }
+                    if (point_in_rect(mouse_x, mouse_y, compute_network_password_rect(layout)))
+                    {
+                        active_text_field_ = TextInputField::network_password;
+                        return;
+                    }
+                }
+                else if (mode_ != ChessGuiMode::local_game && mode_ != ChessGuiMode::network_game)
+                {
+                    return;
+                }
+
+                if (mode_ != ChessGuiMode::local_game && mode_ != ChessGuiMode::network_game)
                 {
                     return;
                 }
@@ -1049,11 +1495,130 @@ namespace
             if (pressed_button_index_ >= 0)
             {
                 const int released_on = button_index_at(layout, mouse_x, mouse_y);
-                if (released_on == pressed_button_index_)
+                if (released_on == pressed_button_index_ &&
+                    game_button_enabled(mode_, kButtons[static_cast<std::size_t>(released_on)].action))
                 {
                     pending_actions_.push_back(ChessGuiAction{kButtons[static_cast<std::size_t>(released_on)].action, {'A', 1}, {'A', 1}});
                 }
                 pressed_button_index_ = -1;
+                return;
+            }
+
+            if (mode_ == ChessGuiMode::board_editor)
+            {
+                const auto palette_rects = compute_editor_palette_rects(layout);
+                for (std::size_t i = 0; i < palette_rects.size(); ++i)
+                {
+                    if (point_in_rect(mouse_x, mouse_y, palette_rects[i]))
+                    {
+                        board_editor_state_.selected_piece = kEditorPalette[i].piece;
+                        return;
+                    }
+                }
+
+                const auto button_rects = compute_editor_button_rects(layout);
+                for (std::size_t i = 0; i < button_rects.size(); ++i)
+                {
+                    if (point_in_rect(mouse_x, mouse_y, button_rects[i]))
+                    {
+                        pending_actions_.push_back(ChessGuiAction{kEditorButtons[i].action, {'A', 1}, {'A', 1}});
+                        return;
+                    }
+                }
+
+                boardCoordinateType square{'A', 1};
+                if (point_to_square(layout, mouse_x, mouse_y, square))
+                {
+                    pending_actions_.push_back(ChessGuiAction{ChessGuiActionType::editor_board_click, {'A', 1}, square});
+                }
+                return;
+            }
+
+            if (mode_ == ChessGuiMode::database_browser)
+            {
+                const auto button_rects = compute_database_button_rects(layout);
+                for (std::size_t i = 0; i < button_rects.size(); ++i)
+                {
+                    if (!point_in_rect(mouse_x, mouse_y, button_rects[i]))
+                    {
+                        continue;
+                    }
+
+                    if (i == 0 && database_state_.selected_game_index > 0)
+                    {
+                        database_state_.selected_game_index--;
+                        database_state_.selected_snapshot_index = 0;
+                        pending_actions_.push_back(ChessGuiAction{ChessGuiActionType::database_selection_changed, {'A', 1}, {'A', 1}});
+                    }
+                    else if (i == 1 && database_state_.selected_game_index + 1 < static_cast<int>(database_state_.games.size()))
+                    {
+                        database_state_.selected_game_index++;
+                        database_state_.selected_snapshot_index = 0;
+                        pending_actions_.push_back(ChessGuiAction{ChessGuiActionType::database_selection_changed, {'A', 1}, {'A', 1}});
+                    }
+                    else if (i == 2 && database_state_.selected_snapshot_index > 0)
+                    {
+                        database_state_.selected_snapshot_index--;
+                        pending_actions_.push_back(ChessGuiAction{ChessGuiActionType::database_selection_changed, {'A', 1}, {'A', 1}});
+                    }
+                    else if (i == 3 && database_state_.selected_snapshot_index + 1 < database_state_.snapshot_count)
+                    {
+                        database_state_.selected_snapshot_index++;
+                        pending_actions_.push_back(ChessGuiAction{ChessGuiActionType::database_selection_changed, {'A', 1}, {'A', 1}});
+                    }
+                    else if (i == 4)
+                    {
+                        pending_actions_.push_back(ChessGuiAction{ChessGuiActionType::database_load_snapshot, {'A', 1}, {'A', 1}});
+                    }
+                    else if (i == 5)
+                    {
+                        pending_actions_.push_back(ChessGuiAction{ChessGuiActionType::database_back, {'A', 1}, {'A', 1}});
+                    }
+                    return;
+                }
+                return;
+            }
+
+            if (mode_ == ChessGuiMode::network_setup)
+            {
+                const auto role_rects = compute_network_role_rects(layout);
+                if (point_in_rect(mouse_x, mouse_y, role_rects[0]))
+                {
+                    network_state_.role = ChessGuiNetworkRole::host;
+                    active_text_field_ = TextInputField::network_username;
+                    return;
+                }
+                if (point_in_rect(mouse_x, mouse_y, role_rects[1]))
+                {
+                    network_state_.role = ChessGuiNetworkRole::join;
+                    active_text_field_ = TextInputField::network_username;
+                    return;
+                }
+
+                if (network_state_.role == ChessGuiNetworkRole::host)
+                {
+                    const auto color_rects = compute_network_color_rects(layout);
+                    if (point_in_rect(mouse_x, mouse_y, color_rects[0]))
+                    {
+                        network_state_.host_plays_white = true;
+                        return;
+                    }
+                    if (point_in_rect(mouse_x, mouse_y, color_rects[1]))
+                    {
+                        network_state_.host_plays_white = false;
+                        return;
+                    }
+                }
+
+                const auto button_rects = compute_network_button_rects(layout);
+                for (std::size_t i = 0; i < button_rects.size(); ++i)
+                {
+                    if (point_in_rect(mouse_x, mouse_y, button_rects[i]))
+                    {
+                        pending_actions_.push_back(ChessGuiAction{kNetworkButtons[i].action, {'A', 1}, {'A', 1}});
+                        return;
+                    }
+                }
                 return;
             }
 
@@ -1079,6 +1644,10 @@ namespace
                              FontRenderer &font_renderer,
                              const GuiSnapshot &snapshot,
                              ChessGuiMode mode,
+                             const ChessGuiBoardEditorState &board_editor_state,
+                             const ChessGuiDatabaseState &database_state,
+                             const ChessGuiNetworkState &network_state,
+                             TextInputField active_text_field,
                              bool dragging,
                              boardCoordinateType drag_from,
                              pieceType drag_piece,
@@ -1269,71 +1838,297 @@ namespace
             draw_text_centered(font_renderer, "MATE GUI", title_rect, title_size, label_color);
 
             const int info_size = 18;
-            std::string turn_line = "No active player";
-            if (snapshot.current_player == playerColor::white)
+            if (mode == ChessGuiMode::board_editor)
             {
-                turn_line = "White to move";
-            }
-            else if (snapshot.current_player == playerColor::black)
-            {
-                turn_line = "Black to move";
-            }
-            font_renderer.draw_text(turn_line, layout.info_rect.x + 10, layout.info_rect.y + 44, info_size, label_color);
-            font_renderer.draw_text(status_line(snapshot), layout.info_rect.x + 10, layout.info_rect.y + 70, info_size, label_color);
-            if (snapshot.has_last_move)
-            {
-                font_renderer.draw_text("Last move: " + square_name(snapshot.last_move_start) + " -> " + square_name(snapshot.last_move_dest),
-                                        layout.info_rect.x + 10,
-                                        layout.info_rect.y + 96,
+                font_renderer.draw_text("Board editor", layout.info_rect.x + 8, layout.info_rect.y + 42, info_size, label_color);
+                font_renderer.draw_text("Selected: " + editor_piece_label(board_editor_state.selected_piece),
+                                        layout.info_rect.x + 8,
+                                        layout.info_rect.y + 68,
                                         16,
+                                        label_color);
+                font_renderer.draw_text(trimmed_copy(board_editor_state.status_message).empty() ? "Click a square to place the selected piece." : board_editor_state.status_message,
+                                        layout.info_rect.x + 8,
+                                        layout.info_rect.y + 92,
+                                        15,
                                         muted_label);
+
+                font_renderer.draw_text("Save name", layout.info_rect.x + 8, layout.info_rect.y + layout.info_rect.h - 58, 15, muted_label);
+                const SDL_Rect save_rect = compute_editor_save_field_rect(layout);
+                const SDL_Color field_fill = (active_text_field == TextInputField::editor_save_name) ? button_hover : menu_item_fill;
+                fill_rect(renderer, save_rect, field_fill);
+                draw_rect(renderer, save_rect, button_outline);
+                font_renderer.draw_text(board_editor_state.save_name.empty() ? "Custom_Board" : board_editor_state.save_name,
+                                        save_rect.x + 8,
+                                        save_rect.y + 8,
+                                        17,
+                                        label_color);
+
+                const auto palette_rects = compute_editor_palette_rects(layout);
+                for (std::size_t i = 0; i < palette_rects.size(); ++i)
+                {
+                    SDL_Color fill = same_piece(board_editor_state.selected_piece, kEditorPalette[i].piece) ? button_hover : menu_item_fill;
+                    fill_rect(renderer, palette_rects[i], fill);
+                    draw_rect(renderer, palette_rects[i], button_outline);
+
+                    const std::string symbol = piece_symbol_utf8(kEditorPalette[i].piece);
+                    if (!symbol.empty())
+                    {
+                        const SDL_Color fill_color = (kEditorPalette[i].piece.color == playerColor::white) ? white_piece_fill : black_piece_fill;
+                        const SDL_Color outline_color = (kEditorPalette[i].piece.color == playerColor::white) ? white_piece_outline : black_piece_outline;
+                        draw_text_with_outline(font_renderer,
+                                               symbol,
+                                               palette_rects[i].x + std::max(0, (palette_rects[i].w - font_renderer.measure_text(symbol, 28).width) / 2),
+                                               palette_rects[i].y + 8,
+                                               28,
+                                               fill_color,
+                                               outline_color,
+                                               1);
+                    }
+                    else
+                    {
+                        draw_text_centered(font_renderer, "X", inset_rect(palette_rects[i], 6), 22, label_color);
+                    }
+
+                    font_renderer.draw_text(kEditorPalette[i].label,
+                                            palette_rects[i].x + 6,
+                                            palette_rects[i].y + palette_rects[i].h - 18,
+                                            11,
+                                            muted_label);
+                }
+
+                const auto button_rects = compute_editor_button_rects(layout);
+                for (std::size_t i = 0; i < button_rects.size(); ++i)
+                {
+                    fill_rect(renderer, button_rects[i], button_fill);
+                    draw_rect(renderer, button_rects[i], button_outline);
+                    draw_text_centered(font_renderer, kEditorButtons[i].label, button_rects[i], 18, label_color);
+                }
+
+                font_renderer.draw_text("Use Save to write the current board to the database.", layout.footer_rect.x + 8, layout.footer_rect.y + 10, 14, muted_label);
+                font_renderer.draw_text("Tab switches fields. Back returns to the main menu.", layout.footer_rect.x + 8, layout.footer_rect.y + 28, 14, muted_label);
+            }
+            else if (mode == ChessGuiMode::database_browser)
+            {
+                font_renderer.draw_text("Load from database", layout.info_rect.x + 8, layout.info_rect.y + 42, info_size, label_color);
+                if (database_state.games.empty() || database_state.selected_game_index < 0)
+                {
+                    font_renderer.draw_text(database_state.status_message.empty() ? "No saved games found." : database_state.status_message,
+                                            layout.info_rect.x + 8,
+                                            layout.info_rect.y + 72,
+                                            16,
+                                            muted_label);
+                }
+                else
+                {
+                    const ChessGuiDatabaseEntry &game_entry = database_state.games[static_cast<std::size_t>(database_state.selected_game_index)];
+                    font_renderer.draw_text(game_entry.name, layout.info_rect.x + 8, layout.info_rect.y + 68, 18, label_color);
+                    font_renderer.draw_text("Game " + std::to_string(database_state.selected_game_index + 1) + " of " + std::to_string(database_state.games.size()) +
+                                                " | Snapshots: " + std::to_string(std::max(0, database_state.snapshot_count)),
+                                            layout.info_rect.x + 8,
+                                            layout.info_rect.y + 92,
+                                            15,
+                                            muted_label);
+                    font_renderer.draw_text("Board " + std::to_string(database_state.selected_snapshot_index + 1) + " of " + std::to_string(std::max(1, database_state.snapshot_count)),
+                                            layout.info_rect.x + 8,
+                                            layout.info_rect.y + 114,
+                                            15,
+                                            muted_label);
+                    if (!database_state.current_move_label.empty())
+                    {
+                        font_renderer.draw_text(database_state.current_move_label, layout.info_rect.x + 8, layout.info_rect.y + 136, 13, muted_label);
+                    }
+                }
+
+                if (!database_state.status_message.empty())
+                {
+                    font_renderer.draw_text(database_state.status_message, layout.panel_rect.x, layout.panel_rect.y + layout.panel_rect.h - 84, 14, muted_label);
+                }
+
+                const auto button_rects = compute_database_button_rects(layout);
+                for (std::size_t i = 0; i < button_rects.size(); ++i)
+                {
+                    bool enabled = true;
+                    if (i == 0)
+                    {
+                        enabled = database_state.selected_game_index > 0;
+                    }
+                    else if (i == 1)
+                    {
+                        enabled = database_state.selected_game_index + 1 < static_cast<int>(database_state.games.size());
+                    }
+                    else if (i == 2)
+                    {
+                        enabled = database_state.selected_snapshot_index > 0;
+                    }
+                    else if (i == 3)
+                    {
+                        enabled = database_state.selected_snapshot_index + 1 < database_state.snapshot_count;
+                    }
+                    else if (i == 4)
+                    {
+                        enabled = database_state.snapshot_count > 0;
+                    }
+
+                    fill_rect(renderer, button_rects[i], enabled ? button_fill : button_disabled);
+                    draw_rect(renderer, button_rects[i], button_outline);
+                    draw_text_centered(font_renderer, kDatabaseButtons[i].label, button_rects[i], 18, label_color);
+                }
+
+                font_renderer.draw_text("Browse snapshots, then press Load to keep the previewed board.", layout.footer_rect.x + 8, layout.footer_rect.y + 10, 14, muted_label);
+                font_renderer.draw_text("Back restores the board you had before opening this browser.", layout.footer_rect.x + 8, layout.footer_rect.y + 28, 14, muted_label);
+            }
+            else if (mode == ChessGuiMode::network_setup)
+            {
+                font_renderer.draw_text("Network game", layout.info_rect.x + 8, layout.info_rect.y + 42, info_size, label_color);
+
+                const auto role_rects = compute_network_role_rects(layout);
+                for (std::size_t i = 0; i < role_rects.size(); ++i)
+                {
+                    const bool selected = (static_cast<int>(i) == ((network_state.role == ChessGuiNetworkRole::host) ? 0 : 1));
+                    fill_rect(renderer, role_rects[i], selected ? button_hover : menu_item_fill);
+                    draw_rect(renderer, role_rects[i], button_outline);
+                    draw_text_centered(font_renderer, kNetworkRoleLabels[i], role_rects[i], 18, label_color);
+                }
+
+                font_renderer.draw_text("Username", layout.panel_rect.x, layout.info_rect.y + 78, 15, muted_label);
+                SDL_Rect username_rect = compute_network_username_rect(layout);
+                fill_rect(renderer, username_rect, active_text_field == TextInputField::network_username ? button_hover : menu_item_fill);
+                draw_rect(renderer, username_rect, button_outline);
+                font_renderer.draw_text(network_state.username.empty() ? "player" : network_state.username, username_rect.x + 8, username_rect.y + 8, 17, label_color);
+
+                if (network_state.role == ChessGuiNetworkRole::join)
+                {
+                    font_renderer.draw_text("Host", layout.panel_rect.x, layout.info_rect.y + 132, 15, muted_label);
+                    SDL_Rect host_rect = compute_network_host_rect(layout);
+                    fill_rect(renderer, host_rect, active_text_field == TextInputField::network_host ? button_hover : menu_item_fill);
+                    draw_rect(renderer, host_rect, button_outline);
+                    font_renderer.draw_text(network_state.host.empty() ? "127.0.0.1" : network_state.host, host_rect.x + 8, host_rect.y + 8, 17, label_color);
+                }
+                else
+                {
+                    font_renderer.draw_text("Host color", layout.panel_rect.x, layout.info_rect.y + 204, 15, muted_label);
+                    const auto color_rects = compute_network_color_rects(layout);
+                    for (std::size_t i = 0; i < color_rects.size(); ++i)
+                    {
+                        const bool selected = (static_cast<int>(i) == (network_state.host_plays_white ? 0 : 1));
+                        fill_rect(renderer, color_rects[i], selected ? button_hover : menu_item_fill);
+                        draw_rect(renderer, color_rects[i], button_outline);
+                        draw_text_centered(font_renderer, kNetworkColorLabels[i], color_rects[i], 18, label_color);
+                    }
+                }
+
+                font_renderer.draw_text("Password", layout.panel_rect.x, layout.info_rect.y + 258, 15, muted_label);
+                SDL_Rect password_rect = compute_network_password_rect(layout);
+                fill_rect(renderer, password_rect, active_text_field == TextInputField::network_password ? button_hover : menu_item_fill);
+                draw_rect(renderer, password_rect, button_outline);
+                font_renderer.draw_text(masked_password(network_state.password), password_rect.x + 8, password_rect.y + 8, 17, label_color);
+
+                if (!network_state.status_message.empty())
+                {
+                    font_renderer.draw_text(network_state.status_message, layout.panel_rect.x, layout.panel_rect.y + layout.panel_rect.h - 92, 14, muted_label);
+                }
+
+                const auto button_rects = compute_network_button_rects(layout);
+                for (std::size_t i = 0; i < button_rects.size(); ++i)
+                {
+                    fill_rect(renderer, button_rects[i], button_fill);
+                    draw_rect(renderer, button_rects[i], button_outline);
+                    draw_text_centered(font_renderer, kNetworkButtons[i].label, button_rects[i], 18, label_color);
+                }
+
+                font_renderer.draw_text("Choose Host or Join, fill the fields, then press Start.", layout.footer_rect.x + 8, layout.footer_rect.y + 10, 14, muted_label);
+                font_renderer.draw_text("Default port comes from config.json. Password may be left empty.", layout.footer_rect.x + 8, layout.footer_rect.y + 28, 14, muted_label);
             }
             else
             {
-                font_renderer.draw_text("Last move: none", layout.info_rect.x + 10, layout.info_rect.y + 96, 16, muted_label);
-            }
-
-            std::string mode_line = "GUI main menu is ready";
-            if (mode == ChessGuiMode::local_game)
-            {
-                mode_line = "Drag pieces or use the side buttons";
-            }
-            else if (mode == ChessGuiMode::busy)
-            {
-                mode_line = "Terminal flow active";
-            }
-            font_renderer.draw_text(mode_line, layout.footer_rect.x + 8, layout.footer_rect.y + 10, 15, muted_label);
-            font_renderer.draw_text("Moves played: " + std::to_string(snapshot.move_count), layout.footer_rect.x + 8, layout.footer_rect.y + 28, 15, muted_label);
-
-            const bool buttons_enabled = mode == ChessGuiMode::local_game;
-            for (std::size_t i = 0; i < kButtons.size(); ++i)
-            {
-                SDL_Color fill = button_fill;
-                if (!buttons_enabled)
+                std::string turn_line = "No active player";
+                if (snapshot.current_player == playerColor::white)
                 {
-                    fill = button_disabled;
+                    turn_line = "White to move";
                 }
-                else if (static_cast<int>(i) == pressed_button)
+                else if (snapshot.current_player == playerColor::black)
                 {
-                    fill = button_pressed;
+                    turn_line = "Black to move";
                 }
-                else if (static_cast<int>(i) == hovered_button)
+                font_renderer.draw_text(turn_line, layout.info_rect.x + 10, layout.info_rect.y + 44, info_size, label_color);
+                font_renderer.draw_text(status_line(snapshot), layout.info_rect.x + 10, layout.info_rect.y + 70, info_size, label_color);
+                if (snapshot.has_last_move)
                 {
-                    fill = button_hover;
+                    font_renderer.draw_text("Last move: " + square_name(snapshot.last_move_start) + " -> " + square_name(snapshot.last_move_dest),
+                                            layout.info_rect.x + 10,
+                                            layout.info_rect.y + 96,
+                                            16,
+                                            muted_label);
+                }
+                else
+                {
+                    font_renderer.draw_text("Last move: none", layout.info_rect.x + 10, layout.info_rect.y + 96, 16, muted_label);
                 }
 
-                fill_rect(renderer, layout.button_rects[i], fill);
-                draw_rect(renderer, layout.button_rects[i], button_outline);
-                draw_text_centered(font_renderer, kButtons[i].label, layout.button_rects[i], 20, label_color);
+                std::string mode_line = "GUI main menu is ready";
+                if (mode == ChessGuiMode::local_game)
+                {
+                    mode_line = "Drag pieces or use the side buttons";
+                }
+                else if (mode == ChessGuiMode::network_game)
+                {
+                    mode_line = "Network game active";
+                }
+                else if (mode == ChessGuiMode::busy)
+                {
+                    if (!network_state.status_message.empty())
+                    {
+                        mode_line = network_state.status_message;
+                    }
+                    else if (!database_state.status_message.empty())
+                    {
+                        mode_line = database_state.status_message;
+                    }
+                    else if (!board_editor_state.status_message.empty())
+                    {
+                        mode_line = board_editor_state.status_message;
+                    }
+                    else
+                    {
+                        mode_line = "Working...";
+                    }
+                }
+                font_renderer.draw_text(mode_line, layout.footer_rect.x + 8, layout.footer_rect.y + 10, 15, muted_label);
+                font_renderer.draw_text("Moves played: " + std::to_string(snapshot.move_count), layout.footer_rect.x + 8, layout.footer_rect.y + 28, 15, muted_label);
+
+                for (std::size_t i = 0; i < kButtons.size(); ++i)
+                {
+                    const bool enabled = game_button_enabled(mode, kButtons[i].action);
+                    SDL_Color fill = button_fill;
+                    if (!enabled)
+                    {
+                        fill = button_disabled;
+                    }
+                    else if (static_cast<int>(i) == pressed_button)
+                    {
+                        fill = button_pressed;
+                    }
+                    else if (static_cast<int>(i) == hovered_button)
+                    {
+                        fill = button_hover;
+                    }
+
+                    fill_rect(renderer, layout.button_rects[i], fill);
+                    draw_rect(renderer, layout.button_rects[i], button_outline);
+                    draw_text_centered(font_renderer, kButtons[i].label, layout.button_rects[i], 20, label_color);
+                }
             }
 
             SDL_RenderPresent(renderer);
         }
 
-        std::mutex mutex_;
+        mutable std::mutex mutex_;
         std::condition_variable init_cv_;
         GuiSnapshot snapshot_;
         ChessGuiMode mode_ = ChessGuiMode::main_menu;
+        ChessGuiBoardEditorState board_editor_state_{};
+        ChessGuiDatabaseState database_state_{};
+        ChessGuiNetworkState network_state_{};
         std::deque<ChessGuiAction> pending_actions_;
         bool initialized_ = false;
         bool init_success_ = false;
@@ -1348,6 +2143,7 @@ namespace
         int hovered_menu_index_ = -1;
         int pressed_button_index_ = -1;
         int hovered_button_index_ = -1;
+        TextInputField active_text_field_ = TextInputField::none;
         std::atomic<bool> running_{true};
         std::atomic<bool> open_{false};
         std::thread worker_;

@@ -132,6 +132,34 @@ void chess::set_game_name(const std::string &name)
     game_name = name;
 }
 
+void chess::set_current_player(playerColor color)
+{
+    current_player = color;
+    if (color == playerColor::white)
+    {
+        other_player = playerColor::black;
+    }
+    else if (color == playerColor::black)
+    {
+        other_player = playerColor::white;
+    }
+    else
+    {
+        other_player = playerColor::none;
+    }
+}
+
+void chess::clear_board()
+{
+    for (int file = 0; file < 8; ++file)
+    {
+        for (int rank = 0; rank < 8; ++rank)
+        {
+            chessboard[file][rank] = {pieceCode::empty, playerColor::none};
+        }
+    }
+}
+
 void chess::place_piece(boardPositionType position)
 {
     if (validatePosition(position.coord))
@@ -176,15 +204,7 @@ boardPositionType chess::query_position(boardCoordinateType coordinates)
 
 void chess::load_starting_position()
 {
-    // Initialize an empty board
-    for (int row = 0; row < 8; ++row)
-    {
-        for (int col = 0; col < 8; ++col)
-        {
-            chessboard[row][col].piece = pieceCode::empty;
-            chessboard[row][col].color = playerColor::none;
-        }
-    }
+    clear_board();
     for (int file = 0; file < 8; ++file)
     {
         char current_file = static_cast<char>('A' + file);
@@ -1546,13 +1566,7 @@ void chess::board_editor()
         }
         else if (cmd == "EMPTY")
         {
-            for (int rank = 1; rank <= 8; ++rank)
-            {
-                for (char file = 'A'; file <= 'H'; ++file)
-                {
-                    place_piece({file, rank}, {pieceCode::empty, playerColor::none});
-                }
-            }
+            clear_board();
         }
         else if (cmd == "SAVE")
         {

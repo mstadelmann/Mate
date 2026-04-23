@@ -63,7 +63,7 @@ To show the optional GUI board window while keeping the terminal menus, start Ma
 ./build/Mate --gui
 ```
 
-The GUI uses real Unicode chess-piece glyphs from a system font, supports drag-and-drop piece movement during local games, includes quick-action buttons for common commands like smart move, undo, save, and quit, and adds a top menu bar for the main app actions such as starting a new game, opening the board editor, loading from the database, and entering network mode.
+The GUI uses real Unicode chess-piece glyphs from a system font, supports drag-and-drop piece movement during local and network games, includes quick-action buttons for common commands like smart move, undo, save, and quit, and adds GUI-native screens for board editing, browsing saved database positions, and configuring host/join network sessions from the `--gui` window.
 
 On first launch, Mate creates `~/.mate/config.json` when it does not already exist.
 
