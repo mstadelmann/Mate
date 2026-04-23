@@ -1458,9 +1458,9 @@ motionType chess::smartMoveR(int depth, int alpha, int beta, moveType bestMoveTy
 
     if (bestMoveList.size() > 1)
     {
-        srand(time(0)); // define random piece of list
-        int rmdIdx = (rand() % bestMoveList.size());
-        bestMove = bestMoveList[rmdIdx];
+        static std::mt19937 rng(std::random_device{}());
+        std::uniform_int_distribution<std::size_t> dist(0, bestMoveList.size() - 1);
+        bestMove = bestMoveList[dist(rng)];
     }
     else
     {
