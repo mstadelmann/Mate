@@ -45,7 +45,7 @@ chess::chess()
 
 chess::~chess() = default;
 
-bool chess::check_board_valid()
+bool chess::check_board_valid() const
 {
     int white_king_count = 0;
     int black_king_count = 0;
@@ -405,26 +405,9 @@ bool chess::manualMove()
     {
         boardCoordinateType startCoord = chessCoordinatesFromString(startField);
         boardCoordinateType endCoord = chessCoordinatesFromString(endField);
-
-        boardPositionType startPos = query_position(startCoord);
-        boardPositionType endPos = query_position(endCoord);
-
-        motionType moveToMake = {startPos, endPos, moveType::undefined, moved_by::human, 0};
-
-        motionVector legalMoves = findAllLegalMoves();
-
-        for (const auto &legalMove : legalMoves)
+        if (applyMove(startCoord, endCoord, moved_by::human))
         {
-            if (legalMove.start_position.coord.file == moveToMake.start_position.coord.file &&
-                legalMove.start_position.coord.rank == moveToMake.start_position.coord.rank &&
-                legalMove.dest_position.coord.file == moveToMake.dest_position.coord.file &&
-                legalMove.dest_position.coord.rank == moveToMake.dest_position.coord.rank)
-            {
-                moveToMake.type_of_move = legalMove.type_of_move;
-                executeMove(moveToMake);
-                swapPlayers();
-                return true;
-            }
+            return true;
         }
     }
     catch (const std::exception &e)
@@ -434,6 +417,27 @@ bool chess::manualMove()
     }
 
     std::cout << "Illegal move." << std::endl;
+    return false;
+}
+
+bool chess::applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who)
+{
+    motionVector legalMoves = findAllLegalMoves();
+    for (const auto &legalMove : legalMoves)
+    {
+        if (legalMove.start_position.coord.file == startCoord.file &&
+            legalMove.start_position.coord.rank == startCoord.rank &&
+            legalMove.dest_position.coord.file == endCoord.file &&
+            legalMove.dest_position.coord.rank == endCoord.rank)
+        {
+            motionType moveToMake = legalMove;
+            moveToMake.moved_by_whom = who;
+            executeMove(moveToMake);
+            swapPlayers();
+            return true;
+        }
+    }
+
     return false;
 }
 

@@ -35,6 +35,8 @@ enum class MainMenuChoice
 };
 
 MainMenuChoice MainMenu(bool print_menu = true);
+void print_main_menu();
+bool try_parse_main_menu_command(const std::string &cmd, MainMenuChoice &choice);
 
 #define GAME_MENU_ITEMS(X)                      \
     X(ManualMove, " m: Enter manual move")      \
@@ -56,6 +58,8 @@ enum class GameMenuChoice
 };
 
 GameMenuChoice GameMenu(bool print_menu = true);
+void print_game_menu();
+bool try_parse_game_menu_command(const std::string &cmd, GameMenuChoice &choice);
 void debugMessage(const std::string &msg);
 
 #endif /* UTILS_H */

@@ -5,6 +5,7 @@
 #include <cstdint>
 
 class chess;
+class ChessGui;
 
 struct NetConnection
 {
@@ -26,6 +27,6 @@ bool connect_client(const std::string &host, uint16_t port, const std::string &u
 // Close underlying socket
 void close_connection(NetConnection &conn);
 
-int run_network_game(chess &game, NetConnection &conn);
+int run_network_game(chess &game, NetConnection &conn, ChessGui *gui = nullptr);
 
 #endif // NETWORK_H

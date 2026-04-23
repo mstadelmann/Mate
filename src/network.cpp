@@ -1,5 +1,6 @@
 #include "network.h"
 #include "chess.h"
+#include "gui.h"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -61,31 +62,12 @@ namespace
         {
             auto startCoord = game.chessCoordinatesFromString(startField);
             auto endCoord = game.chessCoordinatesFromString(endField);
-
-            auto startPos = game.query_position(startCoord);
-            auto endPos = game.query_position(endCoord);
-
-            motionType moveToMake{startPos, endPos, moveType::undefined, moved_by::network, 0};
-            motionVector legalMoves = game.findAllLegalMoves();
-            for (const auto &legalMove : legalMoves)
-            {
-                if (legalMove.start_position.coord.file == moveToMake.start_position.coord.file &&
-                    legalMove.start_position.coord.rank == moveToMake.start_position.coord.rank &&
-                    legalMove.dest_position.coord.file == moveToMake.dest_position.coord.file &&
-                    legalMove.dest_position.coord.rank == moveToMake.dest_position.coord.rank)
-                {
-                    moveToMake.type_of_move = legalMove.type_of_move;
-                    game.executeMove(moveToMake);
-                    game.swapPlayers();
-                    return true;
-                }
-            }
+            return game.applyMove(startCoord, endCoord, moved_by::network);
         }
         catch (...)
         {
             return false;
         }
-        return false;
     }
 
     void print_network_help()
@@ -285,8 +267,9 @@ void close_connection(NetConnection &conn)
     }
 }
 
-int run_network_game(chess &game, NetConnection &conn)
+int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
 {
+    set_chess_gui_mode(gui, ChessGuiMode::busy);
     cout << (conn.myPlaysWhite ? "You are White." : "You are Black.") << endl;
     cout << "You: " << conn.myName << ", Opponent: " << conn.peerName << endl;
 
@@ -302,6 +285,7 @@ int run_network_game(chess &game, NetConnection &conn)
     while (true)
     {
         game.detectCheckmate();
+        sync_chess_gui(gui, game);
         game.printCurrentGame();
 
         bool myTurnIsWhite = conn.myPlaysWhite;

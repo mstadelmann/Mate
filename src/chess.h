@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <array>
+#include <cstddef>
 #include "config.h"
 
 using std::array;
@@ -165,6 +166,7 @@ public:
     motionVector findLegalQueenMoves(boardCoordinateType);
     motionVector findLegalKingMoves(boardCoordinateType);
     bool validatePosition(boardCoordinateType) const;
+    bool applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who = moved_by::human);
     bool check_move_legal(motionType);
     void executeMove(motionType);
     bool manualMove();
@@ -187,9 +189,29 @@ public:
     void performSmartMove();
     void board_editor();
     void listMoveHistory();
-    bool check_board_valid();
+    bool check_board_valid() const;
     void detectCheckmate();
     void swapPlayers() { std::swap(current_player, other_player); }
+    const boardType &board() const { return chessboard; }
+    playerColor current_player_color() const { return current_player; }
+    bool is_checked(playerColor color) const
+    {
+        if (color == playerColor::white)
+            return white_checked;
+        if (color == playerColor::black)
+            return black_checked;
+        return false;
+    }
+    bool is_checkmate(playerColor color) const
+    {
+        if (color == playerColor::white)
+            return white_checkmate;
+        if (color == playerColor::black)
+            return black_checkmate;
+        return false;
+    }
+    std::size_t move_count() const { return gameHistory.empty() ? 0U : (gameHistory.size() - 1U); }
+    bool has_played_moves() const { return gameHistory.size() > 1U; }
 };
 
 std::string moveTypeToString(moveType);
