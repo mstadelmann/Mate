@@ -43,10 +43,7 @@ chess::chess()
     }
 }
 
-chess::~chess()
-{
-    std::cout << "Destroying chess game..." << std::endl;
-}
+chess::~chess() = default;
 
 bool chess::check_board_valid()
 {
@@ -76,6 +73,33 @@ void chess::init_game()
     // Reset any network player names when starting a new game
     white_player_name.clear();
     black_player_name.clear();
+    current_player = playerColor::white;
+    other_player = playerColor::black;
+    replace_black_pawn = true;
+    RecFuncCounter = 0;
+    skippedBranches = 0;
+    white_checked = false;
+    black_checked = false;
+    white_checkmate = false;
+    black_checkmate = false;
+    gameHistory.clear();
+    gamePositionHistory.clear();
+    gameStateHistory.clear();
+
+    // Starting a game from an arbitrary board should not inherit castling or
+    // en passant rights from a previous session.
+    wCanCastleKs = false;
+    wCanCastleQs = false;
+    bCanCastleKs = false;
+    bCanCastleQs = false;
+    en_passant_target = {'Z', 0};
+    if (board_is_standard_start())
+    {
+        wCanCastleKs = true;
+        wCanCastleQs = true;
+        bCanCastleKs = true;
+        bCanCastleQs = true;
+    }
 
     time_t now = time(nullptr);
     tm *ltm = localtime(&now);
@@ -195,6 +219,49 @@ void chess::load_starting_position()
     bCanCastleKs = true;
     bCanCastleQs = true;
     en_passant_target = {'Z', 0};
+}
+
+bool chess::board_is_standard_start() const
+{
+    auto matches = [this](char file, int rank, pieceCode piece, playerColor color)
+    {
+        const pieceType &sq = at(file, rank);
+        return sq.piece == piece && sq.color == color;
+    };
+
+    for (char file = 'A'; file <= 'H'; ++file)
+    {
+        if (!matches(file, 2, pieceCode::pawn, playerColor::white) ||
+            !matches(file, 7, pieceCode::pawn, playerColor::black))
+        {
+            return false;
+        }
+
+        for (int rank = 3; rank <= 6; ++rank)
+        {
+            if (!matches(file, rank, pieceCode::empty, playerColor::none))
+            {
+                return false;
+            }
+        }
+    }
+
+    return matches('A', 1, pieceCode::rook, playerColor::white) &&
+           matches('B', 1, pieceCode::knight, playerColor::white) &&
+           matches('C', 1, pieceCode::bishop, playerColor::white) &&
+           matches('D', 1, pieceCode::queen, playerColor::white) &&
+           matches('E', 1, pieceCode::king, playerColor::white) &&
+           matches('F', 1, pieceCode::bishop, playerColor::white) &&
+           matches('G', 1, pieceCode::knight, playerColor::white) &&
+           matches('H', 1, pieceCode::rook, playerColor::white) &&
+           matches('A', 8, pieceCode::rook, playerColor::black) &&
+           matches('B', 8, pieceCode::knight, playerColor::black) &&
+           matches('C', 8, pieceCode::bishop, playerColor::black) &&
+           matches('D', 8, pieceCode::queen, playerColor::black) &&
+           matches('E', 8, pieceCode::king, playerColor::black) &&
+           matches('F', 8, pieceCode::bishop, playerColor::black) &&
+           matches('G', 8, pieceCode::knight, playerColor::black) &&
+           matches('H', 8, pieceCode::rook, playerColor::black);
 }
 
 std::string chess::current_player_string() const
@@ -521,7 +588,7 @@ void chess::executeMove(motionType moveToExecute)
     {
         update_castling_rights_on_capture(capturedBefore, destPos.coord);
     }
-    update_castling_rights_on_move(startPos, destPos);
+    update_castling_rights_on_move(startPos);
 
     // Update en passant target
     en_passant_target = {'Z', 0};
@@ -539,12 +606,12 @@ void chess::executeMove(motionType moveToExecute)
     // std::swap(current_player, other_player);
 }
 
-void chess::reverseMove()
+bool chess::reverseMove()
 {
-    if (gameHistory.empty() || gamePositionHistory.empty())
+    if (gameHistory.size() <= 1 || gamePositionHistory.size() <= 1 || gameStateHistory.size() <= 1)
     {
         std::cout << "No moves to undo." << std::endl;
-        return;
+        return false;
     }
 
     // Remove the last move from history
@@ -556,8 +623,7 @@ void chess::reverseMove()
     // Restore castling rights and en passant state
     pop_state_snapshot();
 
-    // Switch current player
-    // game.swapPlayers();
+    return true;
 }
 
 boardCoordinateType chess::findKing()
@@ -1130,7 +1196,7 @@ bool chess::is_square_attacked(boardCoordinateType sq, playerColor byColor) cons
     return false;
 }
 
-void chess::update_castling_rights_on_move(const boardPositionType &startPos, const boardPositionType &destPos)
+void chess::update_castling_rights_on_move(const boardPositionType &startPos)
 {
     if (startPos.piece.piece == pieceCode::king)
     {
@@ -1305,104 +1371,100 @@ motionType chess::smartMoveR(int depth, int alpha, int beta, moveType bestMoveTy
     int playerFactor = (current_player == playerColor::white) ? -1 : 1;
     int minMaxVal = (current_player == playerColor::white) ? maxValStart : minValStart;
 
-    if (depth == 0)
+    if (legalMovesList.empty())
     {
         RecFuncCounter++;
-
-        if (legalMovesList.size() < 1)
+        if (currentlyChecked())
         {
-            if (currentlyChecked())
-            {
-                bestMove.board_evaluation = playerFactor * finalMattVal;
-            }
-            else
-            {
-                bestMove.board_evaluation = playerFactor * finalPattVal;
-            }
+            bestMove.board_evaluation = playerFactor * (depth == 0 ? finalMattVal : earlyMattVal);
         }
         else
         {
-            bestMove.board_evaluation = evaluateBoard();
+            bestMove.board_evaluation = playerFactor * finalPattVal;
         }
         return bestMove;
     }
 
-    if ((legalMovesList.size() < 1) && (currentlyChecked()))
+    if (depth == 0)
     {
-        // checkmate before depth 0 reached
-        bestMove = getHistoryLast();
-        bestMove.board_evaluation = playerFactor * earlyMattVal;
+        RecFuncCounter++;
+        bestMove.board_evaluation = evaluateBoard();
+        return bestMove;
     }
-    else
+
+    for (size_t i = 0; i < legalMovesList.size(); i++)
     {
-        for (size_t i = 0; i < legalMovesList.size(); i++)
-        {
-            executeMove(legalMovesList[i]);
-            swapPlayers();
-            currentMove = smartMoveR(depth - 1, alpha, beta, legalMovesList[i].type_of_move);
-            reverseMove();
-            swapPlayers();
+        executeMove(legalMovesList[i]);
+        swapPlayers();
+        currentMove = smartMoveR(depth - 1, alpha, beta, legalMovesList[i].type_of_move);
+        reverseMove();
+        swapPlayers();
 
-            if (currentMove.board_evaluation == minMaxVal)
-            { // found equally good move, add to list for random pick
-                bestMove.start_position = legalMovesList[i].start_position;
-                bestMove.dest_position = legalMovesList[i].dest_position;
-                bestMove.board_evaluation = minMaxVal;
-                bestMove.type_of_move = legalMovesList[i].type_of_move;
-                bestMoveList.push_back(bestMove);
-            }
-            else if ((is_white && currentMove.board_evaluation > minMaxVal) || (is_black && currentMove.board_evaluation < minMaxVal))
-            { // found better move (new Max), reset list and add new move
-                minMaxVal = currentMove.board_evaluation;
-
-                bestMove.start_position = legalMovesList[i].start_position;
-                bestMove.dest_position = legalMovesList[i].dest_position;
-                bestMove.board_evaluation = minMaxVal;
-                bestMove.type_of_move = legalMovesList[i].type_of_move;
-
-                bestMoveList.clear();
-                bestMoveList.push_back(bestMove);
-
-                if ((bestMove.board_evaluation == playerFactor * earlyMattVal) || (bestMove.board_evaluation == playerFactor * finalMattVal))
-                {
-                    break;
-                }
-            }
-            else
-            {
-                // debugMessage("no new MAX, current value = " + to_string(maxVal) + " current Depth: " + to_string(depth), 1);
-            }
-            if (use_AB_pruning)
-            {
-                if (is_white)
-                {
-                    // Maximizing node: tighten lower bound
-                    alpha = std::max(alpha, minMaxVal);
-                }
-                else if (is_black)
-                {
-                    // Minimizing node: tighten upper bound
-                    beta = std::min(beta, minMaxVal);
-                }
-
-                if (beta <= alpha)
-                {
-                    skippedBranches++;
-                    break;
-                }
-            }
+        if (currentMove.board_evaluation == minMaxVal)
+        { // found equally good move, add to list for random pick
+            bestMove.start_position = legalMovesList[i].start_position;
+            bestMove.dest_position = legalMovesList[i].dest_position;
+            bestMove.board_evaluation = minMaxVal;
+            bestMove.type_of_move = legalMovesList[i].type_of_move;
+            bestMoveList.push_back(bestMove);
         }
+        else if ((is_white && currentMove.board_evaluation > minMaxVal) || (is_black && currentMove.board_evaluation < minMaxVal))
+        { // found better move (new Max), reset list and add new move
+            minMaxVal = currentMove.board_evaluation;
 
-        if (bestMoveList.size() > 1)
-        {
-            srand(time(0)); // define random piece of list
-            int rmdIdx = (rand() % bestMoveList.size());
-            bestMove = bestMoveList[rmdIdx];
+            bestMove.start_position = legalMovesList[i].start_position;
+            bestMove.dest_position = legalMovesList[i].dest_position;
+            bestMove.board_evaluation = minMaxVal;
+            bestMove.type_of_move = legalMovesList[i].type_of_move;
+
+            bestMoveList.clear();
+            bestMoveList.push_back(bestMove);
+
+            if ((bestMove.board_evaluation == playerFactor * earlyMattVal) || (bestMove.board_evaluation == playerFactor * finalMattVal))
+            {
+                break;
+            }
         }
         else
         {
-            bestMove = bestMoveList.back();
+            // debugMessage("no new MAX, current value = " + to_string(maxVal) + " current Depth: " + to_string(depth), 1);
         }
+        if (use_AB_pruning)
+        {
+            if (is_white)
+            {
+                // Maximizing node: tighten lower bound
+                alpha = std::max(alpha, minMaxVal);
+            }
+            else if (is_black)
+            {
+                // Minimizing node: tighten upper bound
+                beta = std::min(beta, minMaxVal);
+            }
+
+            if (beta <= alpha)
+            {
+                skippedBranches++;
+                break;
+            }
+        }
+    }
+
+    if (bestMoveList.empty())
+    {
+        bestMove.board_evaluation = evaluateBoard();
+        return bestMove;
+    }
+
+    if (bestMoveList.size() > 1)
+    {
+        static std::mt19937 rng(std::random_device{}());
+        std::uniform_int_distribution<std::size_t> dist(0, bestMoveList.size() - 1);
+        bestMove = bestMoveList[dist(rng)];
+    }
+    else
+    {
+        bestMove = bestMoveList.back();
     }
     return bestMove;
 }
@@ -1430,6 +1492,13 @@ void chess::performSmartMove()
 
     RecFuncCounter = 0;
     skippedBranches = 0;
+
+    motionVector legalMoves = findAllLegalMoves();
+    if (legalMoves.empty())
+    {
+        std::cout << "No legal moves available." << std::endl;
+        return;
+    }
 
     motionType currentSmartMove = smartMoveR(minMaxDepth, maxValStart, minValStart);
     currentSmartMove.moved_by_whom = moved_by::engine;

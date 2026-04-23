@@ -1,6 +1,10 @@
 #include "utils.h"
 #include <cctype>
 
+#ifndef MATE_VERSION
+#define MATE_VERSION "dev"
+#endif
+
 void printLogo(void)
 {
     cout << "  __  __       _       " << endl;
