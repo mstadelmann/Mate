@@ -26,19 +26,20 @@ Mate is a terminal chess program with:
 - C++17 compiler
 - CMake 3.16+
 - SQLite3 development headers and library
+- SDL2, FreeType, and Fontconfig development headers and libraries only when you want the optional GUI window
 - ONNX Runtime only when building with `MATE_ENABLE_ONNX=ON`
 
 Ubuntu/Debian example:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential cmake libsqlite3-dev
+sudo apt install -y build-essential cmake libsqlite3-dev libsdl2-dev libfreetype6-dev libfontconfig1-dev
 ```
 
 Arch Linux example:
 
 ```bash
-sudo pacman -S --needed base-devel cmake sqlite
+sudo pacman -S --needed base-devel cmake sqlite sdl2 freetype2 fontconfig
 ```
 
 ## Quick Start
@@ -55,6 +56,14 @@ Run:
 ```bash
 ./build/Mate
 ```
+
+To show the optional GUI board window while keeping the terminal menus, start Mate with:
+
+```bash
+./build/Mate --gui
+```
+
+The GUI uses real Unicode chess-piece glyphs from a system font, supports drag-and-drop piece movement during local and network games, includes quick-action buttons for common commands like smart move, undo, save, and quit, and adds GUI-native screens for board editing, browsing saved database positions, and configuring host/join network sessions from the `--gui` window.
 
 On first launch, Mate creates `~/.mate/config.json` when it does not already exist.
 

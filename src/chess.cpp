@@ -45,7 +45,7 @@ chess::chess()
 
 chess::~chess() = default;
 
-bool chess::check_board_valid()
+bool chess::check_board_valid() const
 {
     int white_king_count = 0;
     int black_king_count = 0;
@@ -132,6 +132,34 @@ void chess::set_game_name(const std::string &name)
     game_name = name;
 }
 
+void chess::set_current_player(playerColor color)
+{
+    current_player = color;
+    if (color == playerColor::white)
+    {
+        other_player = playerColor::black;
+    }
+    else if (color == playerColor::black)
+    {
+        other_player = playerColor::white;
+    }
+    else
+    {
+        other_player = playerColor::none;
+    }
+}
+
+void chess::clear_board()
+{
+    for (int file = 0; file < 8; ++file)
+    {
+        for (int rank = 0; rank < 8; ++rank)
+        {
+            chessboard[file][rank] = {pieceCode::empty, playerColor::none};
+        }
+    }
+}
+
 void chess::place_piece(boardPositionType position)
 {
     if (validatePosition(position.coord))
@@ -176,15 +204,7 @@ boardPositionType chess::query_position(boardCoordinateType coordinates)
 
 void chess::load_starting_position()
 {
-    // Initialize an empty board
-    for (int row = 0; row < 8; ++row)
-    {
-        for (int col = 0; col < 8; ++col)
-        {
-            chessboard[row][col].piece = pieceCode::empty;
-            chessboard[row][col].color = playerColor::none;
-        }
-    }
+    clear_board();
     for (int file = 0; file < 8; ++file)
     {
         char current_file = static_cast<char>('A' + file);
@@ -405,26 +425,9 @@ bool chess::manualMove()
     {
         boardCoordinateType startCoord = chessCoordinatesFromString(startField);
         boardCoordinateType endCoord = chessCoordinatesFromString(endField);
-
-        boardPositionType startPos = query_position(startCoord);
-        boardPositionType endPos = query_position(endCoord);
-
-        motionType moveToMake = {startPos, endPos, moveType::undefined, moved_by::human, 0};
-
-        motionVector legalMoves = findAllLegalMoves();
-
-        for (const auto &legalMove : legalMoves)
+        if (applyMove(startCoord, endCoord, moved_by::human))
         {
-            if (legalMove.start_position.coord.file == moveToMake.start_position.coord.file &&
-                legalMove.start_position.coord.rank == moveToMake.start_position.coord.rank &&
-                legalMove.dest_position.coord.file == moveToMake.dest_position.coord.file &&
-                legalMove.dest_position.coord.rank == moveToMake.dest_position.coord.rank)
-            {
-                moveToMake.type_of_move = legalMove.type_of_move;
-                executeMove(moveToMake);
-                swapPlayers();
-                return true;
-            }
+            return true;
         }
     }
     catch (const std::exception &e)
@@ -434,6 +437,27 @@ bool chess::manualMove()
     }
 
     std::cout << "Illegal move." << std::endl;
+    return false;
+}
+
+bool chess::applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who)
+{
+    motionVector legalMoves = findAllLegalMoves();
+    for (const auto &legalMove : legalMoves)
+    {
+        if (legalMove.start_position.coord.file == startCoord.file &&
+            legalMove.start_position.coord.rank == startCoord.rank &&
+            legalMove.dest_position.coord.file == endCoord.file &&
+            legalMove.dest_position.coord.rank == endCoord.rank)
+        {
+            motionType moveToMake = legalMove;
+            moveToMake.moved_by_whom = who;
+            executeMove(moveToMake);
+            swapPlayers();
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -1542,13 +1566,7 @@ void chess::board_editor()
         }
         else if (cmd == "EMPTY")
         {
-            for (int rank = 1; rank <= 8; ++rank)
-            {
-                for (char file = 'A'; file <= 'H'; ++file)
-                {
-                    place_piece({file, rank}, {pieceCode::empty, playerColor::none});
-                }
-            }
+            clear_board();
         }
         else if (cmd == "SAVE")
         {

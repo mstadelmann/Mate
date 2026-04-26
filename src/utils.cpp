@@ -31,52 +31,80 @@ namespace
         GameMenuChoice choice;
         const char *label;
     };
-
-    int showMenuAndGetIndex(const char *title, size_t count, const char *const *labels, bool print_menu = true)
-    {
-        int choice = -1;
-        while (true)
-        {
-            if (print_menu)
-            {
-                cout << title << endl;
-                for (size_t i = 0; i < count; ++i)
-                {
-                    cout << (i + 1) << ". " << labels[i] << endl;
-                }
-                cout << "Enter choice (1-" << count << "): " << endl;
-            }
-            else
-            {
-                cout << ">MATE ";
-            }
-
-            if (!(std::cin >> choice) || choice < 1 || choice > static_cast<int>(count))
-            {
-                std::cin.clear();
-                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-                cout << "Error: please enter a number between 1 and " << count << "." << endl;
-                continue;
-            }
-            break;
-        }
-        return choice - 1; // zero-based index
-    }
 } // namespace
 
 MainMenuChoice MainMenu(bool print_menu)
+{
+    if (print_menu)
+    {
+        print_main_menu();
+    }
+
+    while (true)
+    {
+        std::string cmd;
+        if (!(std::cin >> cmd) || cmd.empty())
+        {
+            std::cin.clear();
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            cout << "Error: please enter a number between 1 and 6." << endl;
+            continue;
+        }
+
+        MainMenuChoice choice = MainMenuChoice::Quit;
+        if (try_parse_main_menu_command(cmd, choice))
+        {
+            return choice;
+        }
+
+        cout << "Error: please enter a number between 1 and 6." << endl;
+    }
+}
+
+void print_main_menu()
 {
 #define MAKE_ITEM(name, label) MenuItemMain{MainMenuChoice::name, label},
     static const std::vector<MenuItemMain> kMainMenuItems = {MAIN_MENU_ITEMS(MAKE_ITEM)};
 #undef MAKE_ITEM
 
-    std::vector<const char *> labels;
-    labels.reserve(kMainMenuItems.size());
-    for (const auto &it : kMainMenuItems)
-        labels.push_back(it.label);
+    cout << "\nMain Menu:" << endl;
+    for (size_t i = 0; i < kMainMenuItems.size(); ++i)
+    {
+        cout << (i + 1) << ". " << kMainMenuItems[i].label << endl;
+    }
+    cout << "Enter choice (1-" << kMainMenuItems.size() << "): " << endl;
+}
 
-    int idx = showMenuAndGetIndex("\nMain Menu:", kMainMenuItems.size(), labels.data(), print_menu);
-    return kMainMenuItems[static_cast<size_t>(idx)].choice;
+bool try_parse_main_menu_command(const std::string &cmd, MainMenuChoice &choice)
+{
+    if (cmd.size() != 1 || !std::isdigit(static_cast<unsigned char>(cmd[0])))
+    {
+        return false;
+    }
+
+    switch (cmd[0])
+    {
+    case '1':
+        choice = MainMenuChoice::StartNewGame;
+        return true;
+    case '2':
+        choice = MainMenuChoice::BoardEditor;
+        return true;
+    case '3':
+        choice = MainMenuChoice::LoadFromDatabase;
+        return true;
+    case '4':
+        choice = MainMenuChoice::PLAY;
+        return true;
+    case '5':
+        choice = MainMenuChoice::StartNetworkGame;
+        return true;
+    case '6':
+        choice = MainMenuChoice::Quit;
+        return true;
+    default:
+        return false;
+    }
 }
 
 GameMenuChoice GameMenu(bool print_menu)
@@ -88,12 +116,7 @@ GameMenuChoice GameMenu(bool print_menu)
 
     auto printOptions = [&]()
     {
-        cout << "Game Menu:" << endl;
-        for (const auto &it : kGameMenuItems)
-        {
-            cout << it.label << endl;
-        }
-        cout << "Enter command: " << endl;
+        print_game_menu();
     };
 
     if (print_menu)
@@ -115,37 +138,81 @@ GameMenuChoice GameMenu(bool print_menu)
             continue;
         }
 
-        char c = static_cast<char>(std::tolower(static_cast<unsigned char>(cmd[0])));
-        switch (c)
+        GameMenuChoice choice = GameMenuChoice::Help;
+        if (try_parse_game_menu_command(cmd, choice))
         {
-        case 'm':
-            return GameMenuChoice::ManualMove;
-        case 's':
-            return GameMenuChoice::SmartMove;
-        case 'p':
-            return GameMenuChoice::MLMove;
-        case 'r':
-            return GameMenuChoice::RandomMove;
-        case 'u':
-            return GameMenuChoice::Undo;
-        case 'a':
-            return GameMenuChoice::ListAllMoves;
-        case 'l':
-            return GameMenuChoice::ShowHistory;
-        case 'w':
-            return GameMenuChoice::WriteDB;
-        case 'h':
-            printOptions();
-            // Return Help so caller can set showMenu=true
-            return GameMenuChoice::Help;
-        case 'q':
-            return GameMenuChoice::Quit;
-        default:
-            cout << "Unknown command." << endl;
-            printOptions();
-            print_menu = true;
-            continue;
+            if (choice == GameMenuChoice::Help)
+            {
+                printOptions();
+                return GameMenuChoice::Help;
+            }
+            return choice;
         }
+
+        cout << "Unknown command." << endl;
+        printOptions();
+        print_menu = true;
+        continue;
+    }
+}
+
+void print_game_menu()
+{
+    // Build items from single source in utils.h to avoid duplication
+#define MAKE_ITEM(name, label) MenuItemGame{GameMenuChoice::name, label},
+    static const std::vector<MenuItemGame> kGameMenuItems = {GAME_MENU_ITEMS(MAKE_ITEM)};
+#undef MAKE_ITEM
+
+    cout << "Game Menu:" << endl;
+    for (const auto &it : kGameMenuItems)
+    {
+        cout << it.label << endl;
+    }
+    cout << "Enter command: " << endl;
+}
+
+bool try_parse_game_menu_command(const std::string &cmd, GameMenuChoice &choice)
+{
+    if (cmd.empty())
+    {
+        return false;
+    }
+
+    const char c = static_cast<char>(std::tolower(static_cast<unsigned char>(cmd[0])));
+    switch (c)
+    {
+    case 'm':
+        choice = GameMenuChoice::ManualMove;
+        return true;
+    case 's':
+        choice = GameMenuChoice::SmartMove;
+        return true;
+    case 'p':
+        choice = GameMenuChoice::MLMove;
+        return true;
+    case 'r':
+        choice = GameMenuChoice::RandomMove;
+        return true;
+    case 'u':
+        choice = GameMenuChoice::Undo;
+        return true;
+    case 'a':
+        choice = GameMenuChoice::ListAllMoves;
+        return true;
+    case 'l':
+        choice = GameMenuChoice::ShowHistory;
+        return true;
+    case 'w':
+        choice = GameMenuChoice::WriteDB;
+        return true;
+    case 'h':
+        choice = GameMenuChoice::Help;
+        return true;
+    case 'q':
+        choice = GameMenuChoice::Quit;
+        return true;
+    default:
+        return false;
     }
 }
 

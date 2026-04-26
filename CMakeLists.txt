@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Mate VERSION 0.1.5)
+project(Mate VERSION 0.1.6)
 
 option(MATE_ENABLE_ONNX "Enable ML move support via ONNX Runtime" OFF)
 
@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(CTest)
+find_package(Threads REQUIRED)
 
 set(MATE_CORE_SOURCES
     src/chess.cpp
@@ -60,7 +61,21 @@ if(MATE_ENABLE_ONNX)
 endif()
 
 add_executable(Mate src/main.cpp)
-target_link_libraries(Mate PRIVATE mate_core)
+target_link_libraries(Mate PRIVATE mate_core Threads::Threads)
+
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(SDL2_PC QUIET IMPORTED_TARGET sdl2)
+    pkg_check_modules(FREETYPE2_PC QUIET IMPORTED_TARGET freetype2)
+    pkg_check_modules(FONTCONFIG_PC QUIET IMPORTED_TARGET fontconfig)
+endif()
+
+if(SDL2_PC_FOUND AND FREETYPE2_PC_FOUND AND FONTCONFIG_PC_FOUND)
+    target_sources(Mate PRIVATE src/gui.cpp)
+    target_link_libraries(Mate PRIVATE PkgConfig::SDL2_PC PkgConfig::FREETYPE2_PC PkgConfig::FONTCONFIG_PC)
+else()
+    target_sources(Mate PRIVATE src/gui_stub.cpp)
+endif()
 
 if(BUILD_TESTING)
     add_executable(mate_core_tests tests/core_smoke.cpp)

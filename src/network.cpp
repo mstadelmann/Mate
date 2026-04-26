@@ -1,5 +1,6 @@
 #include "network.h"
 #include "chess.h"
+#include "gui.h"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -61,31 +62,12 @@ namespace
         {
             auto startCoord = game.chessCoordinatesFromString(startField);
             auto endCoord = game.chessCoordinatesFromString(endField);
-
-            auto startPos = game.query_position(startCoord);
-            auto endPos = game.query_position(endCoord);
-
-            motionType moveToMake{startPos, endPos, moveType::undefined, moved_by::network, 0};
-            motionVector legalMoves = game.findAllLegalMoves();
-            for (const auto &legalMove : legalMoves)
-            {
-                if (legalMove.start_position.coord.file == moveToMake.start_position.coord.file &&
-                    legalMove.start_position.coord.rank == moveToMake.start_position.coord.rank &&
-                    legalMove.dest_position.coord.file == moveToMake.dest_position.coord.file &&
-                    legalMove.dest_position.coord.rank == moveToMake.dest_position.coord.rank)
-                {
-                    moveToMake.type_of_move = legalMove.type_of_move;
-                    game.executeMove(moveToMake);
-                    game.swapPlayers();
-                    return true;
-                }
-            }
+            return game.applyMove(startCoord, endCoord, moved_by::network);
         }
         catch (...)
         {
             return false;
         }
-        return false;
     }
 
     void print_network_help()
@@ -98,6 +80,116 @@ namespace
         cout << " - c: Send a chat message" << endl;
         cout << " - q: Quit game" << endl;
         cout << endl;
+    }
+
+    bool connect_client_impl(const std::string &host,
+                             uint16_t port,
+                             const std::string &username,
+                             const std::string &password,
+                             bool prompt_before_join,
+                             NetConnection &outConn,
+                             std::string &error_message)
+    {
+        int sock = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (sock < 0)
+        {
+            error_message = "Could not create client socket.";
+            return false;
+        }
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0)
+        {
+            hostent *he = ::gethostbyname(host.c_str());
+            if (!he)
+            {
+                ::close(sock);
+                error_message = "Could not resolve host '" + host + "'.";
+                return false;
+            }
+            std::memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
+        }
+
+        if (::connect(sock, (sockaddr *)&addr, sizeof(addr)) < 0)
+        {
+            ::close(sock);
+            error_message = "Could not connect to " + host + ":" + std::to_string(port) + ".";
+            return false;
+        }
+
+        string line;
+        if (!recv_line(sock, line))
+        {
+            ::close(sock);
+            error_message = "Server closed the connection during handshake.";
+            return false;
+        }
+        if (line.rfind("NAME ", 0) != 0)
+        {
+            ::close(sock);
+            error_message = "Server sent an unexpected handshake response.";
+            return false;
+        }
+
+        std::istringstream iss(line.substr(5));
+        string serverName, colorToken, lockToken;
+        iss >> serverName >> colorToken >> lockToken;
+        const bool hostIsWhite = (colorToken == "WHITE");
+        const bool requiresPass = (lockToken == "LOCKED");
+
+        if (prompt_before_join)
+        {
+            cout << "Found server hosted by '" << serverName << "' (" << (hostIsWhite ? "White" : "Black") << (requiresPass ? ", password protected" : "") << "). Join? (y/n): " << std::flush;
+            string ans;
+            std::cin >> ans;
+            if (ans.empty() || (ans[0] != 'y' && ans[0] != 'Y'))
+            {
+                (void)send_line(sock, "QUIT");
+                ::close(sock);
+                error_message = "Join canceled.";
+                return false;
+            }
+        }
+
+        string join_password = password;
+        if (requiresPass && prompt_before_join && join_password.empty())
+        {
+            cout << "Enter server password: " << std::flush;
+            std::getline(std::cin >> std::ws, join_password);
+        }
+
+        if (!send_line(sock, string("JOIN ") + username + (join_password.empty() ? string("") : string(" ") + join_password)))
+        {
+            ::close(sock);
+            error_message = "Could not send JOIN request to the server.";
+            return false;
+        }
+
+        string resp;
+        if (!recv_line(sock, resp))
+        {
+            ::close(sock);
+            error_message = "Server closed the connection before completing JOIN.";
+            return false;
+        }
+        if (resp == "DENY")
+        {
+            cout << "Wrong password. Access denied." << endl;
+            ::close(sock);
+            error_message = "Access denied by the server.";
+            return false;
+        }
+
+        outConn.sock = sock;
+        outConn.isServer = false;
+        outConn.myName = username;
+        outConn.peerName = serverName;
+        outConn.myPlaysWhite = !hostIsWhite;
+        outConn.port = port;
+        cout << "Joined game with '" << outConn.peerName << "'." << endl;
+        return true;
     }
 }
 
@@ -188,92 +280,18 @@ bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhit
 
 bool connect_client(const std::string &host, uint16_t port, const std::string &username, NetConnection &outConn)
 {
-    int sock = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0)
-        return false;
+    std::string error_message;
+    return connect_client_impl(host, port, username, "", true, outConn, error_message);
+}
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) <= 0)
-    {
-        // Try DNS resolution
-        hostent *he = ::gethostbyname(host.c_str());
-        if (!he)
-        {
-            ::close(sock);
-            return false;
-        }
-        std::memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
-    }
-
-    if (::connect(sock, (sockaddr *)&addr, sizeof(addr)) < 0)
-    {
-        ::close(sock);
-        return false;
-    }
-
-    string line;
-    if (!recv_line(sock, line))
-    {
-        ::close(sock);
-        return false;
-    }
-    if (line.rfind("NAME ", 0) != 0)
-    {
-        ::close(sock);
-        return false;
-    }
-    // Expect: NAME <serverName> <color> [OPEN|LOCKED]
-    std::istringstream iss(line.substr(5));
-    string serverName, colorToken, lockToken;
-    iss >> serverName >> colorToken >> lockToken;
-    bool hostIsWhite = (colorToken == "WHITE");
-    bool requiresPass = (lockToken == "LOCKED");
-    cout << "Found server hosted by '" << serverName << "' (" << (hostIsWhite ? "White" : "Black") << (requiresPass ? ", password protected" : "") << "). Join? (y/n): " << std::flush;
-    string ans;
-    std::cin >> ans;
-    if (ans.empty() || (ans[0] != 'y' && ans[0] != 'Y'))
-    {
-        (void)send_line(sock, "QUIT");
-        ::close(sock);
-        return false;
-    }
-
-    string pwd;
-    if (requiresPass)
-    {
-        cout << "Enter server password: " << std::flush;
-        std::getline(std::cin >> std::ws, pwd);
-    }
-    if (!send_line(sock, string("JOIN ") + username + (pwd.empty() ? string("") : string(" ") + pwd)))
-    {
-        ::close(sock);
-        return false;
-    }
-
-    // Expect server response OK or DENY
-    string resp;
-    if (!recv_line(sock, resp))
-    {
-        ::close(sock);
-        return false;
-    }
-    if (resp == "DENY")
-    {
-        cout << "Wrong password. Access denied." << endl;
-        ::close(sock);
-        return false;
-    }
-
-    outConn.sock = sock;
-    outConn.isServer = false;
-    outConn.myName = username;
-    outConn.peerName = serverName;
-    outConn.myPlaysWhite = !hostIsWhite;
-    outConn.port = port;
-    cout << "Joined game with '" << outConn.peerName << "'." << endl;
-    return true;
+bool connect_client(const std::string &host,
+                    uint16_t port,
+                    const std::string &username,
+                    const std::string &password,
+                    NetConnection &outConn,
+                    std::string &error_message)
+{
+    return connect_client_impl(host, port, username, password, false, outConn, error_message);
 }
 
 void close_connection(NetConnection &conn)
@@ -285,8 +303,9 @@ void close_connection(NetConnection &conn)
     }
 }
 
-int run_network_game(chess &game, NetConnection &conn)
+int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
 {
+    set_chess_gui_mode(gui, ChessGuiMode::network_game);
     cout << (conn.myPlaysWhite ? "You are White." : "You are Black.") << endl;
     cout << "You: " << conn.myName << ", Opponent: " << conn.peerName << endl;
 
@@ -297,11 +316,53 @@ int run_network_game(chess &game, NetConnection &conn)
     else
         game.set_player_names(conn.peerName, conn.myName);
 
-    // Show available commands at the start of a network game
     print_network_help();
+
+    auto handle_gui_action = [&](const ChessGuiAction &action, bool my_turn, bool &move_sent, bool &terminate)
+    {
+        switch (action.type)
+        {
+        case ChessGuiActionType::move_piece:
+            if (!my_turn)
+            {
+                cout << "It's not your turn." << endl;
+                return;
+            }
+            if (!game.applyMove(action.start, action.dest, moved_by::network))
+            {
+                cout << "Illegal move." << endl;
+                return;
+            }
+            if (!send_line(conn.sock, string("MOVE ") + string(1, action.start.file) + std::to_string(action.start.rank) + " " +
+                                         string(1, action.dest.file) + std::to_string(action.dest.rank)))
+            {
+                cout << "Network error sending move." << endl;
+                terminate = true;
+                return;
+            }
+            move_sent = true;
+            return;
+        case ChessGuiActionType::list_moves:
+            game.listLegalMoves();
+            return;
+        case ChessGuiActionType::write_db:
+            cout << "Writing to database..." << endl;
+            store_to_DB(game);
+            return;
+        case ChessGuiActionType::quit_game:
+            (void)send_line(conn.sock, "QUIT");
+            cout << "You quit the game." << endl;
+            terminate = true;
+            return;
+        default:
+            return;
+        }
+    };
+
     while (true)
     {
         game.detectCheckmate();
+        sync_chess_gui(gui, game);
         game.printCurrentGame();
 
         bool myTurnIsWhite = conn.myPlaysWhite;
@@ -314,20 +375,38 @@ int run_network_game(chess &game, NetConnection &conn)
             bool terminate = false;
             while (!moveSent && !terminate)
             {
+                ChessGuiAction gui_action;
+                while (poll_chess_gui_action(gui, gui_action))
+                {
+                    handle_gui_action(gui_action, true, moveSent, terminate);
+                    if (moveSent || terminate)
+                    {
+                        break;
+                    }
+                }
+                if (moveSent || terminate)
+                {
+                    break;
+                }
+
                 fd_set rfds;
                 FD_ZERO(&rfds);
                 FD_SET(conn.sock, &rfds);
                 FD_SET(STDIN_FILENO, &rfds);
                 int nfds = std::max(conn.sock, STDIN_FILENO) + 1;
-                int rv = ::select(nfds, &rfds, nullptr, nullptr, nullptr);
+                timeval timeout{0, 75 * 1000};
+                int rv = ::select(nfds, &rfds, nullptr, nullptr, &timeout);
                 if (rv < 0)
                 {
                     cout << "Select error. Terminating." << endl;
                     terminate = true;
                     break;
                 }
+                if (rv == 0)
+                {
+                    continue;
+                }
 
-                // Handle incoming network messages immediately (e.g., chat)
                 if (FD_ISSET(conn.sock, &rfds))
                 {
                     string line;
@@ -363,7 +442,6 @@ int run_network_game(chess &game, NetConnection &conn)
                     }
                 }
 
-                // Handle user input for commands/moves
                 if (FD_ISSET(STDIN_FILENO, &rfds))
                 {
                     std::string input;
@@ -465,24 +543,42 @@ int run_network_game(chess &game, NetConnection &conn)
         else
         {
             cout << "Waiting for opponent move..." << endl;
-            // Allow sending chat while waiting by monitoring both socket and stdin
             bool terminated = false;
             while (!terminated)
             {
+                ChessGuiAction gui_action;
+                while (poll_chess_gui_action(gui, gui_action))
+                {
+                    bool move_sent = false;
+                    handle_gui_action(gui_action, false, move_sent, terminated);
+                    if (terminated)
+                    {
+                        break;
+                    }
+                }
+                if (terminated)
+                {
+                    break;
+                }
+
                 fd_set rfds;
                 FD_ZERO(&rfds);
                 FD_SET(conn.sock, &rfds);
                 FD_SET(STDIN_FILENO, &rfds);
                 int nfds = std::max(conn.sock, STDIN_FILENO) + 1;
-                int rv = ::select(nfds, &rfds, nullptr, nullptr, nullptr);
+                timeval timeout{0, 75 * 1000};
+                int rv = ::select(nfds, &rfds, nullptr, nullptr, &timeout);
                 if (rv < 0)
                 {
                     cout << "Select error. Terminating." << endl;
                     terminated = true;
                     break;
                 }
+                if (rv == 0)
+                {
+                    continue;
+                }
 
-                // Incoming network message
                 if (FD_ISSET(conn.sock, &rfds))
                 {
                     string line;
@@ -501,7 +597,6 @@ int run_network_game(chess &game, NetConnection &conn)
                     if (line.rfind("CHAT ", 0) == 0)
                     {
                         cout << "\nMessage from " << conn.peerName << ": " << line.substr(5) << endl;
-                        // Keep waiting for opponent's move
                         continue;
                     }
                     if (line.rfind("MOVE ", 0) == 0)
@@ -526,7 +621,6 @@ int run_network_game(chess &game, NetConnection &conn)
                     }
                 }
 
-                // User input for chat while waiting
                 if (FD_ISSET(STDIN_FILENO, &rfds))
                 {
                     std::string cmd;
@@ -570,5 +664,6 @@ int run_network_game(chess &game, NetConnection &conn)
         }
     }
 
+    set_chess_gui_mode(gui, ChessGuiMode::main_menu);
     return 0;
 }

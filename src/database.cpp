@@ -557,34 +557,99 @@ static pieceType decode_square_code(const std::string &code)
 
 void LoadFromDatabase(chess &game)
 {
-    sqlite3 *db = nullptr;
-    int rc = sqlite3_open(db_path.c_str(), &db);
-    if (rc)
+    std::vector<DatabaseGameSummary> summaries;
+    std::string error_message;
+    if (!list_database_games(summaries, error_message))
     {
-        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
-        if (db)
-            sqlite3_close(db);
+        std::cerr << error_message << std::endl;
         return;
     }
 
-    auto games = list_games(db);
+    std::vector<std::pair<std::string, int>> games;
+    games.reserve(summaries.size());
+    for (const auto &summary : summaries)
+    {
+        games.emplace_back(summary.name, summary.move_count);
+    }
+
     if (games.empty())
     {
         std::cout << "No games found in database." << std::endl;
-        sqlite3_close(db);
         return;
     }
 
     std::string selectedName = prompt_game_selection(games);
     if (selectedName.empty())
     {
-        sqlite3_close(db);
         std::cout << "Canceled load." << std::endl;
         return;
     }
 
-    auto boards = load_boards_for_game(db, selectedName);
-    auto moveInfo = load_move_info(db, selectedName);
-    sqlite3_close(db);
+    std::vector<boardType> boards;
+    std::vector<std::string> moveInfo;
+    if (!load_database_game_snapshots(selectedName, boards, moveInfo, error_message))
+    {
+        std::cerr << error_message << std::endl;
+        return;
+    }
+
     browse_boards_interactive(game, selectedName, boards, moveInfo);
+}
+
+bool list_database_games(std::vector<DatabaseGameSummary> &games, std::string &error_message)
+{
+    games.clear();
+
+    sqlite3 *db = nullptr;
+    const int rc = sqlite3_open(db_path.c_str(), &db);
+    if (rc != SQLITE_OK)
+    {
+        error_message = std::string("Can't open database: ") + sqlite3_errmsg(db);
+        if (db != nullptr)
+        {
+            sqlite3_close(db);
+        }
+        return false;
+    }
+
+    for (const auto &[name, move_count] : list_games(db))
+    {
+        games.push_back(DatabaseGameSummary{name, move_count});
+    }
+
+    sqlite3_close(db);
+    return true;
+}
+
+bool load_database_game_snapshots(const std::string &game_name,
+                                  std::vector<boardType> &boards,
+                                  std::vector<std::string> &move_info,
+                                  std::string &error_message)
+{
+    boards.clear();
+    move_info.clear();
+
+    sqlite3 *db = nullptr;
+    const int rc = sqlite3_open(db_path.c_str(), &db);
+    if (rc != SQLITE_OK)
+    {
+        error_message = std::string("Can't open database: ") + sqlite3_errmsg(db);
+        if (db != nullptr)
+        {
+            sqlite3_close(db);
+        }
+        return false;
+    }
+
+    boards = load_boards_for_game(db, game_name);
+    move_info = load_move_info(db, game_name);
+    sqlite3_close(db);
+
+    if (boards.empty())
+    {
+        error_message = "No board snapshots found for '" + game_name + "'.";
+        return false;
+    }
+
+    return true;
 }
