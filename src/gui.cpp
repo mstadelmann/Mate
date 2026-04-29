@@ -1752,6 +1752,7 @@ namespace
                     const bool black_king_checked = snapshot.black_checked && have_black_king && same_square(current_square, black_king_square);
                     if (white_king_checked || black_king_checked)
                     {
+                        fill_rect(renderer, square_rect, make_color(218, 68, 83, 90));
                         draw_rect(renderer, square_rect, check_outline);
                         SDL_Rect inner = square_rect;
                         inner.x += 2;
@@ -1763,6 +1764,7 @@ namespace
 
                     if (dragging && same_square(current_square, drag_from))
                     {
+                        fill_rect(renderer, square_rect, make_color(100, 160, 220, 70));
                         continue;
                     }
 
@@ -1836,6 +1838,10 @@ namespace
             const int title_size = 28;
             SDL_Rect title_rect{layout.info_rect.x, layout.info_rect.y, layout.info_rect.w, 34};
             draw_text_centered(font_renderer, "MATE GUI", title_rect, title_size, label_color);
+            {
+                SDL_Rect title_divider{layout.info_rect.x + 8, layout.info_rect.y + 36, layout.info_rect.w - 16, 1};
+                fill_rect(renderer, title_divider, panel_outline);
+            }
 
             const int info_size = 18;
             if (mode == ChessGuiMode::board_editor)
@@ -2050,8 +2056,32 @@ namespace
                 {
                     turn_line = "Black to move";
                 }
-                font_renderer.draw_text(turn_line, layout.info_rect.x + 10, layout.info_rect.y + 44, info_size, label_color);
-                font_renderer.draw_text(status_line(snapshot), layout.info_rect.x + 10, layout.info_rect.y + 70, info_size, label_color);
+                if (snapshot.current_player != playerColor::none)
+                {
+                    const SDL_Color indicator_color = (snapshot.current_player == playerColor::white)
+                        ? make_color(245, 245, 235)
+                        : make_color(30, 30, 35);
+                    const SDL_Rect indicator{layout.info_rect.x + 10, layout.info_rect.y + 47, 14, 14};
+                    fill_rect(renderer, indicator, indicator_color);
+                    draw_rect(renderer, indicator, panel_outline);
+                    font_renderer.draw_text(turn_line, layout.info_rect.x + 30, layout.info_rect.y + 44, info_size, label_color);
+                }
+                else
+                {
+                    font_renderer.draw_text(turn_line, layout.info_rect.x + 10, layout.info_rect.y + 44, info_size, label_color);
+                }
+
+                SDL_Color status_color = muted_label;
+                if (snapshot.white_checkmate || snapshot.black_checkmate)
+                {
+                    status_color = make_color(218, 68, 83);
+                }
+                else if (snapshot.white_checked || snapshot.black_checked)
+                {
+                    status_color = make_color(230, 150, 50);
+                }
+                font_renderer.draw_text(status_line(snapshot), layout.info_rect.x + 10, layout.info_rect.y + 70, info_size, status_color);
+
                 if (snapshot.has_last_move)
                 {
                     font_renderer.draw_text("Last move: " + square_name(snapshot.last_move_start) + " -> " + square_name(snapshot.last_move_dest),
@@ -2063,6 +2093,11 @@ namespace
                 else
                 {
                     font_renderer.draw_text("Last move: none", layout.info_rect.x + 10, layout.info_rect.y + 96, 16, muted_label);
+                }
+
+                {
+                    SDL_Rect sep{layout.info_rect.x, layout.info_rect.y + layout.info_rect.h, layout.info_rect.w, 1};
+                    fill_rect(renderer, sep, panel_outline);
                 }
 
                 std::string mode_line = "GUI main menu is ready";
@@ -2099,6 +2134,7 @@ namespace
                 for (std::size_t i = 0; i < kButtons.size(); ++i)
                 {
                     const bool enabled = game_button_enabled(mode, kButtons[i].action);
+                    const bool is_quit = (kButtons[i].action == ChessGuiActionType::quit_game);
                     SDL_Color fill = button_fill;
                     if (!enabled)
                     {
@@ -2106,11 +2142,15 @@ namespace
                     }
                     else if (static_cast<int>(i) == pressed_button)
                     {
-                        fill = button_pressed;
+                        fill = is_quit ? make_color(95, 38, 43) : button_pressed;
                     }
                     else if (static_cast<int>(i) == hovered_button)
                     {
-                        fill = button_hover;
+                        fill = is_quit ? make_color(145, 62, 68) : button_hover;
+                    }
+                    else if (is_quit)
+                    {
+                        fill = make_color(120, 50, 55);
                     }
 
                     fill_rect(renderer, layout.button_rects[i], fill);
