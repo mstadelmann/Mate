@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   bump-on-pr-push:
@@ -79,13 +80,18 @@ jobs:
 
   bump-on-merge:
     name: Bump minor version on PR merge
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.ref }}
 
       - name: Bump minor version
         run: |
@@ -110,10 +116,21 @@ jobs:
           echo "Bumping version $current -> $new"
           sed -i "${line}s/VERSION .*/VERSION ${new})/" "$file"
 
-      - name: Commit version bump
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CMakeLists.txt
-          git commit -m "chore: bump minor version (PR merge)" || echo "No changes to commit"
-          git push origin HEAD:${{ github.event.pull_request.base.ref }}
+      - name: Open version-bump PR
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump minor version (PR merge)"
+          author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          branch: chore/bump-minor-version
+          delete-branch: true
+          base: ${{ github.event.pull_request.base.ref }}
+          title: "chore: bump minor version"
+          body: "Automated minor version bump after merging PR #${{ github.event.pull_request.number }}."
+
+      - name: Enable auto-merge
+        if: steps.cpr.outputs.pull-request-operation == 'created'
+        run: gh pr merge --auto --squash "${{ steps.cpr.outputs.pull-request-number }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
