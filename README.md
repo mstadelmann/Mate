@@ -194,10 +194,10 @@ While connected:
 
 ## CI
 
-GitHub Actions now contains two workflows:
+GitHub Actions contains two workflows:
 
-- `.github/workflows/ci.yml`: installs dependencies, builds Mate without ONNX, runs non-interactive core tests, and executes a CLI smoke test
-- `.github/workflows/version-bump.yml`: bumps the patch version on PR branch updates and the minor version on merge to the PR base branch
+- `.github/workflows/ci.yml`: installs `cmake`, `g++`, and `libsqlite3-dev` (SDL2/FreeType/Fontconfig are not installed, so the GUI stub is compiled), builds Mate without ONNX, runs the `mate_core_tests` suite via CTest, and executes a CLI smoke test (`printf '6\n' | ./build/Mate`)
+- `.github/workflows/version-bump.yml`: bumps the patch version on every push to a PR branch, and bumps the minor version (resetting patch to 0) when a PR is merged; the minor-version bump is opened as a pull request via `peter-evans/create-pull-request` to satisfy protected-branch rules on `main`
 
 ## Known Limits
 
