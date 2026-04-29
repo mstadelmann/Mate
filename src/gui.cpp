@@ -81,7 +81,7 @@ namespace
         {ChessGuiActionType::random_move, "Random"},
         {ChessGuiActionType::undo, "Undo"},
         {ChessGuiActionType::ml_move, "ML Move"},
-        {ChessGuiActionType::list_moves, "Moves"},
+        {ChessGuiActionType::list_moves, "Legal Moves"},
         {ChessGuiActionType::write_db, "Save"},
         {ChessGuiActionType::quit_game, "Quit"},
     }};
