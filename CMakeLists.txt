@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Mate VERSION 0.1.7)
+project(Mate VERSION 0.1.8)
 
 option(MATE_ENABLE_ONNX "Enable ML move support via ONNX Runtime" OFF)
 
