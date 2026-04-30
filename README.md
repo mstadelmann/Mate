@@ -192,21 +192,15 @@ While connected:
 - use `c` to send chat messages
 - use `a`, `l`, `w`, `h`, `q` for the same helpers as local play
 
-## CI
-
-GitHub Actions contains two workflows:
-
-- `.github/workflows/ci.yml`: installs `cmake`, `g++`, and `libsqlite3-dev` (SDL2/FreeType/Fontconfig are not installed, so the GUI stub is compiled), builds Mate without ONNX, runs the `mate_core_tests` suite via CTest, and executes a CLI smoke test (`printf '6\n' | ./build/Mate`)
-- `.github/workflows/version-bump.yml`: bumps the patch version on every push to a PR branch, and bumps the minor version (resetting patch to 0) when a PR is merged; the minor-version bump is opened as a pull request via `peter-evans/create-pull-request` to satisfy protected-branch rules on `main`
 
 ## Known Limits
 
 - Loading or hand-crafting an arbitrary board snapshot does not reconstruct full historical move state; Mate conservatively disables castling and en passant unless the board is the standard starting position
 - terminal rendering assumes UTF-8 support for the chess glyphs
-- the ML path is optional, but the model must exist before ML moves can run
 
 ## Project Layout
 
 - `src/`: engine, UI, networking, persistence, and config code
 - `torch_model/`: model assets, training scripts, and data prep helpers
 - `.github/workflows/`: CI and release automation
+

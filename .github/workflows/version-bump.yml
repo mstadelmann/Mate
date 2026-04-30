@@ -1,10 +1,6 @@
 name: Version Bump
 
 on:
-  push:
-    branches-ignore:
-      - main
-      - master
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
@@ -13,70 +9,50 @@ permissions:
   pull-requests: write
 
 jobs:
-  bump-on-pr-push:
+  bump-on-pr-update:
     name: Bump patch version on PR update
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.actor != 'github-actions[bot]'
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !startsWith(github.event.pull_request.head.ref, 'chore/bump-minor-version')
     runs-on: ubuntu-latest
+    concurrency:
+      group: version-bump-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ secrets.VERSION_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Ensure branch has open PR
-        id: pr
-        uses: octokit/request-action@v2.x
-        with:
-          route: GET /repos/${{ github.repository }}/pulls
-          per_page: 100
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Determine if current branch has an open PR
-        id: has_pr
+      - name: Check latest commit
+        id: latest
         run: |
-          branch="${GITHUB_REF#refs/heads/}"
-          echo "Checking PRs for branch: $branch"
-          echo "$PR_LIST" > prs.json
-          if jq -e --arg b "$branch" '.[] | select(.head.ref == $b and .state == "open")' prs.json > /dev/null; then
-            echo "has_pr=true" >> "$GITHUB_OUTPUT"
+          subject="$(git log -1 --pretty=%s)"
+          if [[ "$subject" == "chore: bump patch version (PR update)" ]]; then
+            echo "is_bump_commit=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_pr=false" >> "$GITHUB_OUTPUT"
+            echo "is_bump_commit=false" >> "$GITHUB_OUTPUT"
           fi
-        env:
-          PR_LIST: ${{ steps.pr.outputs.data }}
 
       - name: Bump patch version
-        if: steps.has_pr.outputs.has_pr == 'true'
-        run: |
-          file=CMakeLists.txt
-          line=$(grep -n "project(Mate VERSION" "$file" | cut -d: -f1)
-          if [ -z "$line" ]; then
-            echo "Version line not found" && exit 1
-          fi
-          # Extract up to four numeric components, then normalize to three (major.minor.patch)
-          raw=$(sed -n "${line}p" "$file" | sed -E 's/.*VERSION ([0-9]+(\.[0-9]+){0,3}).*/\1/')
-          # Keep only the first three components
-          current=$(echo "$raw" | cut -d. -f1-3)
-
-          major=$(echo "$current" | cut -d. -f1)
-          minor=$(echo "$current" | cut -d. -f2)
-          patch=$(echo "$current" | cut -d. -f3)
-          [ -z "$minor" ] && minor=0
-          [ -z "$patch" ] && patch=0
-          patch=$((patch + 1))
-          new="$major.$minor.$patch"
-          echo "Bumping version $current -> $new"
-          sed -i "${line}s/VERSION .*/VERSION ${new})/" "$file"
+        if: steps.latest.outputs.is_bump_commit == 'false'
+        run: bash .github/scripts/bump-cmake-version.sh patch
 
       - name: Commit version bump
-        if: steps.has_pr.outputs.has_pr == 'true'
+        if: steps.latest.outputs.is_bump_commit == 'false'
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CMakeLists.txt
           git commit -m "chore: bump patch version (PR update)" || echo "No changes to commit"
-          git push origin HEAD:${GITHUB_REF#refs/heads/}
+          git push origin "HEAD:${BRANCH}"
 
   bump-on-merge:
     name: Bump minor version on PR merge
@@ -86,41 +62,25 @@ jobs:
       github.event.pull_request.merged == true &&
       github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    concurrency:
+      group: version-bump-merge-${{ github.event.pull_request.base.ref }}
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.base.ref }}
+          token: ${{ secrets.VERSION_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Bump minor version
-        run: |
-          file=CMakeLists.txt
-          line=$(grep -n "project(Mate VERSION" "$file" | cut -d: -f1)
-          if [ -z "$line" ]; then
-            echo "Version line not found" && exit 1
-          fi
-          # Extract up to four numeric components, then normalize to three (major.minor.patch)
-          raw=$(sed -n "${line}p" "$file" | sed -E 's/.*VERSION ([0-9]+(\.[0-9]+){0,3}).*/\1/')
-          # Keep only the first three components
-          current=$(echo "$raw" | cut -d. -f1-3)
-
-          major=$(echo "$current" | cut -d. -f1)
-          minor=$(echo "$current" | cut -d. -f2)
-          patch=$(echo "$current" | cut -d. -f3)
-          [ -z "$minor" ] && minor=0
-          [ -z "$patch" ] && patch=0
-          minor=$((minor + 1))
-          patch=0
-          new="$major.$minor.$patch"
-          echo "Bumping version $current -> $new"
-          sed -i "${line}s/VERSION .*/VERSION ${new})/" "$file"
+        run: bash .github/scripts/bump-cmake-version.sh minor
 
       - name: Open version-bump PR
         id: cpr
         uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.VERSION_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
           commit-message: "chore: bump minor version (PR merge)"
           author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
           branch: chore/bump-minor-version
@@ -133,4 +93,4 @@ jobs:
         if: steps.cpr.outputs.pull-request-operation == 'created'
         run: gh pr merge --auto --squash "${{ steps.cpr.outputs.pull-request-number }}"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.VERSION_BUMP_TOKEN || secrets.GITHUB_TOKEN }}
