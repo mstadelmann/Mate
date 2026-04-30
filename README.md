@@ -203,7 +203,6 @@ GitHub Actions contains two workflows:
 
 - Loading or hand-crafting an arbitrary board snapshot does not reconstruct full historical move state; Mate conservatively disables castling and en passant unless the board is the standard starting position
 - terminal rendering assumes UTF-8 support for the chess glyphs
-- the ML path is optional, but the model must exist before ML moves can run
 
 ## Project Layout
 
