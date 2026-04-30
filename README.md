@@ -197,7 +197,7 @@ While connected:
 GitHub Actions contains two workflows:
 
 - `.github/workflows/ci.yml`: installs `cmake`, `g++`, and `libsqlite3-dev` (SDL2/FreeType/Fontconfig are not installed, so the GUI stub is compiled), builds Mate without ONNX, runs the `mate_core_tests` suite via CTest, and executes a CLI smoke test (`printf '6\n' | ./build/Mate`)
-- `.github/workflows/version-bump.yml`: bumps the patch version on every push to a PR branch, and bumps the minor version (resetting patch to 0) when a PR is merged; the minor-version bump is opened as a pull request via `peter-evans/create-pull-request` to satisfy protected-branch rules on `main`
+- `.github/workflows/version-bump.yml`: bumps the patch version when an open same-repository PR is created or updated, and bumps the minor version (resetting patch to 0) when a non-bot PR is merged; the minor-version bump is opened as a pull request via `peter-evans/create-pull-request` to satisfy protected-branch rules on `main`. If bump commits must run required checks before auto-merge, configure a `VERSION_BUMP_TOKEN` secret backed by a fine-grained PAT or GitHub App token; the default `GITHUB_TOKEN` can create commits and PRs, but its pushes do not trigger normal CI workflows.
 
 ## Known Limits
 
