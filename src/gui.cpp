@@ -316,7 +316,13 @@ namespace
         return result;
     }
 
-    bool locate_chess_font_file(std::string &font_path, std::string &error_message)
+    // require_chess_charset selects between two different jobs: plain UI text
+    // wants an actual sans-serif font, while chess pieces need a font that
+    // covers U+2654-U+265F, which most sans fonts don't - conflating the two
+    // used to make Fontconfig discard the "sans" preference for every label
+    // just to satisfy the piece glyphs. Keeping the lookups separate lets each
+    // pick the font suited to its job.
+    bool locate_font_file(bool require_chess_charset, std::string &font_path, std::string &error_message)
     {
         if (FcInit() == 0)
         {
@@ -325,8 +331,8 @@ namespace
         }
 
         FcPattern *pattern = FcPatternCreate();
-        FcCharSet *charset = FcCharSetCreate();
-        if (pattern == nullptr || charset == nullptr)
+        FcCharSet *charset = require_chess_charset ? FcCharSetCreate() : nullptr;
+        if (pattern == nullptr || (require_chess_charset && charset == nullptr))
         {
             if (pattern != nullptr)
                 FcPatternDestroy(pattern);
@@ -336,25 +342,31 @@ namespace
             return false;
         }
 
-        for (FcChar32 codepoint = 0x2654; codepoint <= 0x265F; ++codepoint)
+        if (require_chess_charset)
         {
-            FcCharSetAddChar(charset, codepoint);
+            for (FcChar32 codepoint = 0x2654; codepoint <= 0x265F; ++codepoint)
+            {
+                FcCharSetAddChar(charset, codepoint);
+            }
+            FcPatternAddCharSet(pattern, FC_CHARSET, charset);
         }
 
         FcPatternAddString(pattern, FC_FAMILY, reinterpret_cast<const FcChar8 *>("sans"));
         FcPatternAddBool(pattern, FC_SCALABLE, FcTrue);
-        FcPatternAddCharSet(pattern, FC_CHARSET, charset);
         FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
         FcDefaultSubstitute(pattern);
 
         FcResult result = FcResultNoMatch;
         FcPattern *match = FcFontMatch(nullptr, pattern, &result);
         FcPatternDestroy(pattern);
-        FcCharSetDestroy(charset);
+        if (charset != nullptr)
+            FcCharSetDestroy(charset);
 
         if (match == nullptr)
         {
-            error_message = "Could not find a system font with Unicode chess pieces.";
+            error_message = require_chess_charset
+                                ? "Could not find a system font with Unicode chess pieces."
+                                : "Could not find a system UI font.";
             return false;
         }
 
@@ -390,9 +402,13 @@ namespace
                 }
             }
 
-            if (face_ != nullptr)
+            if (symbol_face_ != nullptr)
             {
-                FT_Done_Face(face_);
+                FT_Done_Face(symbol_face_);
+            }
+            if (text_face_ != nullptr)
+            {
+                FT_Done_Face(text_face_);
             }
             if (library_ != nullptr)
             {
@@ -402,8 +418,8 @@ namespace
 
         bool initialize(std::string &error_message)
         {
-            std::string font_path;
-            if (!locate_chess_font_file(font_path, error_message))
+            std::string text_font_path;
+            if (!locate_font_file(false, text_font_path, error_message))
             {
                 return false;
             }
@@ -414,10 +430,19 @@ namespace
                 return false;
             }
 
-            if (FT_New_Face(library_, font_path.c_str(), 0, &face_) != 0)
+            if (FT_New_Face(library_, text_font_path.c_str(), 0, &text_face_) != 0)
             {
-                error_message = "Could not open GUI font: " + font_path;
+                error_message = "Could not open GUI font: " + text_font_path;
                 return false;
+            }
+
+            // No font covering the chess-piece block is not fatal: get_glyph()
+            // falls back to text_face_ (and then to '?') for those codepoints.
+            std::string symbol_font_path;
+            std::string symbol_error;
+            if (locate_font_file(true, symbol_font_path, symbol_error) && symbol_font_path != text_font_path)
+            {
+                FT_New_Face(library_, symbol_font_path.c_str(), 0, &symbol_face_);
             }
 
             return true;
@@ -473,22 +498,27 @@ namespace
                 return found->second;
             }
 
+            const bool is_chess_piece = codepoint >= 0x2654 && codepoint <= 0x265F;
+            FT_Face face = (is_chess_piece && symbol_face_ != nullptr) ? symbol_face_ : text_face_;
+
             GlyphTexture glyph;
-            if (FT_Set_Pixel_Sizes(face_, 0, static_cast<FT_UInt>(pixel_size)) != 0)
+            if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(pixel_size)) != 0)
             {
                 return glyph_cache_.emplace(key, glyph).first->second;
             }
 
             FT_ULong glyph_codepoint = static_cast<FT_ULong>(codepoint);
-            if (FT_Load_Char(face_, glyph_codepoint, FT_LOAD_RENDER) != 0)
+            if (FT_Load_Char(face, glyph_codepoint, FT_LOAD_RENDER) != 0)
             {
-                if (FT_Load_Char(face_, static_cast<FT_ULong>('?'), FT_LOAD_RENDER) != 0)
+                face = text_face_;
+                if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(pixel_size)) != 0 ||
+                    FT_Load_Char(face, static_cast<FT_ULong>('?'), FT_LOAD_RENDER) != 0)
                 {
                     return glyph_cache_.emplace(key, glyph).first->second;
                 }
             }
 
-            FT_GlyphSlot slot = face_->glyph;
+            FT_GlyphSlot slot = face->glyph;
             glyph.width = static_cast<int>(slot->bitmap.width);
             glyph.height = static_cast<int>(slot->bitmap.rows);
             glyph.left = slot->bitmap_left;
@@ -526,7 +556,8 @@ namespace
 
         SDL_Renderer *renderer_ = nullptr;
         FT_Library library_ = nullptr;
-        FT_Face face_ = nullptr;
+        FT_Face text_face_ = nullptr;
+        FT_Face symbol_face_ = nullptr;
         std::map<GlyphKey, GlyphTexture> glyph_cache_;
     };
 
