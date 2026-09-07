@@ -107,6 +107,11 @@ public:
     virtual ChessGuiDatabaseState database_state() const = 0;
     virtual void set_network_state(const ChessGuiNetworkState &state) = 0;
     virtual ChessGuiNetworkState network_state() const = 0;
+    // The color the local player actually controls in the active network
+    // game (resolved after the host/join handshake); playerColor::none
+    // outside of network play.
+    virtual void set_local_player_color(playerColor color) = 0;
+    virtual playerColor local_player_color() const = 0;
     virtual bool poll_action(ChessGuiAction &action) = 0;
 };
 
@@ -170,6 +175,14 @@ inline void set_chess_gui_network_state(ChessGui *gui, const ChessGuiNetworkStat
 inline ChessGuiNetworkState get_chess_gui_network_state(ChessGui *gui)
 {
     return (gui != nullptr && gui->is_open()) ? gui->network_state() : ChessGuiNetworkState{};
+}
+
+inline void set_chess_gui_local_player_color(ChessGui *gui, playerColor color)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_local_player_color(color);
+    }
 }
 
 #endif /* GUI_H */

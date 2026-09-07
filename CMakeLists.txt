@@ -80,5 +80,10 @@ endif()
 if(BUILD_TESTING)
     add_executable(mate_core_tests tests/core_smoke.cpp)
     target_link_libraries(mate_core_tests PRIVATE mate_core)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        # core_smoke.cpp checks its invariants with assert(); -DNDEBUG (added by
+        # the Release build type) would silently turn every check into a no-op.
+        target_compile_options(mate_core_tests PRIVATE -UNDEBUG)
+    endif()
     add_test(NAME mate_core_tests COMMAND mate_core_tests)
 endif()

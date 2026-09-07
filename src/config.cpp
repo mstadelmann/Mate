@@ -273,7 +273,7 @@ int kingValue = 900;
 double position_gamma = 1.0;
 int earlyMattVal = 30000;
 int finalMattVal = 20000;
-int finalPattVal = 10000;
+int finalPattVal = 0; // draws (stalemate, fifty-move, repetition) are neutral, not near-checkmate
 int maxValStart = -100000;
 int minValStart = 100000;
 int minMaxDepth = 3;
@@ -468,7 +468,8 @@ static bool parseArray(const std::string &content, const char *name, double a[8]
         {
             char *endp = nullptr;
             double val = strtod(&content[i], &endp);
-            a[r][c++] = val;
+            if (c < 8)
+                a[r][c++] = val;
             i = endp - &content[0] - 1;
         }
         else if (content[i] == ']')

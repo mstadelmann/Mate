@@ -20,6 +20,9 @@ chess::chess()
     black_checked = false;
     white_checkmate = false;
     black_checkmate = false;
+    white_stalemate = false;
+    black_stalemate = false;
+    halfmove_clock = 0;
 
     // Castling rights and en passant default state
     wCanCastleKs = false;
@@ -82,6 +85,9 @@ void chess::init_game()
     black_checked = false;
     white_checkmate = false;
     black_checkmate = false;
+    white_stalemate = false;
+    black_stalemate = false;
+    halfmove_clock = 0;
     gameHistory.clear();
     gamePositionHistory.clear();
     gameStateHistory.clear();
@@ -361,6 +367,12 @@ void chess::printCurrentGame()
                 std::cout << "     Checkmate! Black wins.\n";
             else if (black_checkmate)
                 std::cout << "     Checkmate! White wins.\n";
+            else if (white_stalemate || black_stalemate)
+                std::cout << "     Stalemate! Draw.\n";
+            else if (is_fifty_move_draw())
+                std::cout << "     Draw by fifty-move rule.\n";
+            else if (is_threefold_repetition())
+                std::cout << "     Draw by threefold repetition.\n";
             else if (white_checked)
                 std::cout << "     White is in check!\n";
             else if (black_checked)
@@ -614,6 +626,12 @@ void chess::executeMove(motionType moveToExecute)
     }
     update_castling_rights_on_move(startPos);
 
+    // Fifty-move rule: reset on any pawn move or capture, otherwise count up
+    if (startPos.piece.piece == pieceCode::pawn || capturedBefore.piece != pieceCode::empty)
+        halfmove_clock = 0;
+    else
+        halfmove_clock++;
+
     // Update en passant target
     en_passant_target = {'Z', 0};
     if (startPos.piece.piece == pieceCode::pawn && std::abs(destPos.coord.rank - startPos.coord.rank) == 2)
@@ -675,31 +693,33 @@ void chess::detectCheckmate()
         if (current_player == playerColor::white)
         {
             white_checked = currentlyChecked();
-            if (white_checked)
-            {
-                motionVector legalMoves = findAllLegalMoves();
-                white_checkmate = legalMoves.empty();
-            }
-            else
-            {
-                white_checkmate = false;
-            }
+            motionVector legalMoves = findAllLegalMoves();
+            white_checkmate = white_checked && legalMoves.empty();
+            white_stalemate = !white_checked && legalMoves.empty();
         }
         else
         {
             black_checked = currentlyChecked();
-            if (black_checked)
-            {
-                motionVector legalMoves = findAllLegalMoves();
-                black_checkmate = legalMoves.empty();
-            }
-            else
-            {
-                black_checkmate = false;
-            }
+            motionVector legalMoves = findAllLegalMoves();
+            black_checkmate = black_checked && legalMoves.empty();
+            black_stalemate = !black_checked && legalMoves.empty();
         }
         swapPlayers();
     }
+}
+
+bool chess::is_threefold_repetition() const
+{
+    // Approximate: matches on piece placement alone (ignores side-to-move,
+    // castling rights, and en passant target), which is close enough to catch
+    // the repeated-shuffle/perpetual-check lines that matter in practice.
+    int occurrences = 1; // the current position itself
+    for (const auto &position : gamePositionHistory)
+    {
+        if (position == chessboard)
+            occurrences++;
+    }
+    return occurrences >= 3;
 }
 
 bool chess::currentlyChecked()
@@ -1276,7 +1296,7 @@ void chess::update_castling_rights_on_capture(const pieceType &captured, const b
 
 void chess::push_state_snapshot()
 {
-    gameStateHistory.push_back({wCanCastleKs, wCanCastleQs, bCanCastleKs, bCanCastleQs, en_passant_target});
+    gameStateHistory.push_back({wCanCastleKs, wCanCastleQs, bCanCastleKs, bCanCastleQs, en_passant_target, halfmove_clock});
 }
 
 void chess::pop_state_snapshot()
@@ -1290,6 +1310,7 @@ void chess::pop_state_snapshot()
     bCanCastleKs = s.bck;
     bCanCastleQs = s.bcq;
     en_passant_target = s.ep;
+    halfmove_clock = s.halfmove;
 }
 
 int chess::getPieceValue(pieceCode piece)
@@ -1404,8 +1425,17 @@ motionType chess::smartMoveR(int depth, int alpha, int beta, moveType bestMoveTy
         }
         else
         {
-            bestMove.board_evaluation = playerFactor * finalPattVal;
+            // A draw's value doesn't depend on whose turn it is, unlike
+            // checkmate above, so it is not scaled by playerFactor.
+            bestMove.board_evaluation = finalPattVal;
         }
+        return bestMove;
+    }
+
+    if (is_fifty_move_draw() || is_threefold_repetition())
+    {
+        RecFuncCounter++;
+        bestMove.board_evaluation = finalPattVal;
         return bestMove;
     }
 
