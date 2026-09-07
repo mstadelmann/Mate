@@ -67,7 +67,7 @@ The GUI uses real Unicode chess-piece glyphs from a system font, supports drag-a
 
 On first launch, Mate creates `~/.mate/config.json` when it does not already exist.
 
-The repository still contains a prebuilt `bin/Mate`, but the supported and CI-verified path is a fresh local build from `./build/Mate`.
+The supported and CI-verified path is a fresh local build from `./build/Mate`.
 
 ## Optional ML Support
 
@@ -197,6 +197,8 @@ While connected:
 
 - Loading or hand-crafting an arbitrary board snapshot does not reconstruct full historical move state; Mate conservatively disables castling and en passant unless the board is the standard starting position
 - terminal rendering assumes UTF-8 support for the chess glyphs
+- draws are detected for stalemate, the fifty-move rule, and threefold repetition (by piece placement only, not full position state); insufficient-material draws are not yet detected
+- network play has no encryption; the optional password only slows down guessing (a delay grows with each wrong attempt) and does not protect move/chat traffic from anyone who can observe the connection
 
 ## Project Layout
 

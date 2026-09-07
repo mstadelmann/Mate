@@ -69,6 +69,11 @@ typedef struct pieceStruct
     playerColor color;
 } pieceType;
 
+inline bool operator==(const pieceStruct &a, const pieceStruct &b)
+{
+    return a.piece == b.piece && a.color == b.color;
+}
+
 typedef array<array<pieceType, 8>, 8> boardType; // boardType[file][rank]
 typedef vector<boardType> boardVector;
 
@@ -122,6 +127,7 @@ private:
         bool bck;
         bool bcq;
         boardCoordinateType ep;
+        int halfmove;
     };
     vector<GameStateSnapshot> gameStateHistory;
     // Helpers for board access
@@ -135,6 +141,9 @@ private:
     bool black_checked;
     bool white_checkmate;
     bool black_checkmate;
+    bool white_stalemate;
+    bool black_stalemate;
+    int halfmove_clock; // half-moves since the last pawn move or capture; drives the fifty-move rule
     bool board_is_standard_start() const;
 
     bool is_square_attacked(boardCoordinateType sq, playerColor byColor) const;
@@ -212,6 +221,17 @@ public:
             return black_checkmate;
         return false;
     }
+    bool is_stalemate(playerColor color) const
+    {
+        if (color == playerColor::white)
+            return white_stalemate;
+        if (color == playerColor::black)
+            return black_stalemate;
+        return false;
+    }
+    bool is_fifty_move_draw() const { return halfmove_clock >= 100; }
+    bool is_threefold_repetition() const;
+    bool is_draw() const { return is_fifty_move_draw() || is_threefold_repetition(); }
     std::size_t move_count() const { return gameHistory.empty() ? 0U : (gameHistory.size() - 1U); }
     bool has_played_moves() const { return gameHistory.size() > 1U; }
 };

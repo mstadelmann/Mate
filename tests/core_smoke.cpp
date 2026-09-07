@@ -81,6 +81,56 @@ namespace
         assert(game.getPositionHistory().size() == board_history_size);
         assert(game.current_player_string() == "black");
     }
+
+    void assert_stalemate_is_detected_and_not_confused_with_checkmate()
+    {
+        chess game;
+        clear_board(game);
+        game.place_piece({'A', 8}, {pieceCode::king, playerColor::black});
+        game.place_piece({'C', 6}, {pieceCode::king, playerColor::white});
+        game.place_piece({'C', 7}, {pieceCode::queen, playerColor::white});
+        game.init_game();
+        game.swapPlayers();
+
+        game.detectCheckmate();
+        assert(!game.is_checkmate(playerColor::black));
+        assert(game.is_stalemate(playerColor::black));
+        assert(!game.is_stalemate(playerColor::white));
+
+        chess mated;
+        mated.load_starting_position();
+        mated.init_game();
+        assert(mated.applyMove(mated.chessCoordinatesFromString("F2"), mated.chessCoordinatesFromString("F3")));
+        assert(mated.applyMove(mated.chessCoordinatesFromString("E7"), mated.chessCoordinatesFromString("E5")));
+        assert(mated.applyMove(mated.chessCoordinatesFromString("G2"), mated.chessCoordinatesFromString("G4")));
+        assert(mated.applyMove(mated.chessCoordinatesFromString("D8"), mated.chessCoordinatesFromString("H4")));
+        mated.detectCheckmate();
+        assert(mated.is_checkmate(playerColor::white));
+        assert(!mated.is_stalemate(playerColor::white));
+    }
+
+    void assert_threefold_repetition_is_detected()
+    {
+        chess game;
+        game.load_starting_position();
+        game.init_game();
+        assert(!game.is_threefold_repetition());
+
+        auto mv = [&](const char *a, const char *b)
+        {
+            assert(game.applyMove(game.chessCoordinatesFromString(a), game.chessCoordinatesFromString(b)));
+        };
+        mv("G1", "F3");
+        mv("G8", "F6");
+        mv("F3", "G1");
+        mv("F6", "G8"); // starting position occurs a 2nd time
+        mv("G1", "F3");
+        mv("G8", "F6");
+        mv("F3", "G1");
+        mv("F6", "G8"); // starting position occurs a 3rd time
+
+        assert(game.is_threefold_repetition());
+    }
 } // namespace
 
 int main()
@@ -89,6 +139,8 @@ int main()
     assert_new_game_resets_state();
     assert_undo_stops_at_initial_state();
     assert_smart_move_handles_stalemate();
+    assert_stalemate_is_detected_and_not_confused_with_checkmate();
+    assert_threefold_repetition_is_detected();
     std::cout << "mate_core_tests: all checks passed" << std::endl;
     return 0;
 }

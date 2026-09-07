@@ -35,6 +35,8 @@ namespace
         bool black_checked = false;
         bool white_checkmate = false;
         bool black_checkmate = false;
+        bool stalemate = false;
+        bool rule_draw = false;
         std::size_t move_count = 0;
         bool has_last_move = false;
         boardCoordinateType last_move_start{'A', 1};
@@ -583,6 +585,14 @@ namespace
         {
             oss << " | Checkmate: White wins";
         }
+        else if (snapshot.stalemate)
+        {
+            oss << " | Stalemate: Draw";
+        }
+        else if (snapshot.rule_draw)
+        {
+            oss << " | Draw";
+        }
         else if (snapshot.white_checked)
         {
             oss << " | White in check";
@@ -614,6 +624,14 @@ namespace
         if (snapshot.black_checkmate)
         {
             return "Checkmate: White wins";
+        }
+        if (snapshot.stalemate)
+        {
+            return "Stalemate: Draw";
+        }
+        if (snapshot.rule_draw)
+        {
+            return "Draw";
         }
         if (snapshot.white_checked)
         {
@@ -1045,6 +1063,8 @@ namespace
             next.black_checked = game.is_checked(playerColor::black);
             next.white_checkmate = game.is_checkmate(playerColor::white);
             next.black_checkmate = game.is_checkmate(playerColor::black);
+            next.stalemate = game.is_stalemate(playerColor::white) || game.is_stalemate(playerColor::black);
+            next.rule_draw = game.is_draw();
             next.move_count = game.move_count();
             next.has_last_move = game.has_played_moves();
 
@@ -1073,6 +1093,10 @@ namespace
             if (mode_ == ChessGuiMode::busy)
             {
                 pending_actions_.clear();
+            }
+            if (mode_ != ChessGuiMode::network_game)
+            {
+                local_player_color_ = playerColor::none;
             }
             dragging_ = false;
             pressed_button_index_ = -1;
@@ -1119,6 +1143,18 @@ namespace
         {
             std::lock_guard<std::mutex> lock(mutex_);
             return network_state_;
+        }
+
+        void set_local_player_color(playerColor color) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            local_player_color_ = color;
+        }
+
+        playerColor local_player_color() const override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return local_player_color_;
         }
 
         bool poll_action(ChessGuiAction &action) override
@@ -1458,11 +1494,6 @@ namespace
                     return;
                 }
 
-                if (mode_ != ChessGuiMode::local_game && mode_ != ChessGuiMode::network_game)
-                {
-                    return;
-                }
-
                 boardCoordinateType square{'A', 1};
                 if (!point_to_square(layout, mouse_x, mouse_y, square))
                 {
@@ -1472,6 +1503,12 @@ namespace
                 const pieceType &piece = snapshot_.board[static_cast<std::size_t>(square.file - 'A')][static_cast<std::size_t>(square.rank - 1)];
                 if (piece.piece == pieceCode::empty || piece.color != snapshot_.current_player)
                 {
+                    return;
+                }
+                if (mode_ == ChessGuiMode::network_game && local_player_color_ != playerColor::none &&
+                    piece.color != local_player_color_)
+                {
+                    // Not our color in this network game: don't let the drag pick up the opponent's piece.
                     return;
                 }
 
@@ -2076,6 +2113,10 @@ namespace
                 {
                     status_color = make_color(218, 68, 83);
                 }
+                else if (snapshot.stalemate || snapshot.rule_draw)
+                {
+                    status_color = make_color(200, 160, 60);
+                }
                 else if (snapshot.white_checked || snapshot.black_checked)
                 {
                     status_color = make_color(230, 150, 50);
@@ -2169,6 +2210,7 @@ namespace
         ChessGuiBoardEditorState board_editor_state_{};
         ChessGuiDatabaseState database_state_{};
         ChessGuiNetworkState network_state_{};
+        playerColor local_player_color_ = playerColor::none;
         std::deque<ChessGuiAction> pending_actions_;
         bool initialized_ = false;
         bool init_success_ = false;

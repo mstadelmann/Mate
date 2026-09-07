@@ -5,6 +5,8 @@
 #include <sstream>
 #include <vector>
 #include <cstring>
+#include <chrono>
+#include <thread>
 #include "database.h"
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -20,6 +22,30 @@ using std::string;
 
 namespace
 {
+    // Bounds how long a single recv() can block, so a peer that opens a
+    // connection (or sends a partial line) and then stalls cannot freeze the
+    // whole program indefinitely - recv_line() reads one byte at a time and is
+    // otherwise only protected by a prior select() check on the first byte.
+    void set_recv_timeout(int sock, int seconds)
+    {
+        timeval tv{seconds, 0};
+        ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
+
+    // Compares in time proportional to the expected password's length only,
+    // regardless of where (or whether) the strings first differ.
+    bool constant_time_equal(const string &expected, const string &actual)
+    {
+        unsigned char diff = static_cast<unsigned char>(expected.size() != actual.size());
+        for (size_t i = 0; i < expected.size(); ++i)
+        {
+            unsigned char a = static_cast<unsigned char>(expected[i]);
+            unsigned char b = i < actual.size() ? static_cast<unsigned char>(actual[i]) : 0;
+            diff |= static_cast<unsigned char>(a ^ b);
+        }
+        return diff == 0;
+    }
+
     bool send_line(int sock, const string &line)
     {
         string data = line;
@@ -118,6 +144,7 @@ namespace
             error_message = "Could not connect to " + host + ":" + std::to_string(port) + ".";
             return false;
         }
+        set_recv_timeout(sock, 10);
 
         string line;
         if (!recv_line(sock, line))
@@ -219,6 +246,10 @@ bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhit
 
     cout << "Waiting for a player on port " << port << "..." << endl;
 
+    // Backs off further after each wrong-password attempt across this
+    // session, so a client cannot brute-force the password at line rate.
+    int failed_join_attempts = 0;
+
     // Keep accepting connections until a client joins successfully
     while (true)
     {
@@ -230,6 +261,7 @@ bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhit
             // Accept failed; keep server alive to try again
             continue;
         }
+        set_recv_timeout(cliSock, 10);
 
         // Announce name, color and whether password is required,
         // then expect JOIN <name> [password] or QUIT
@@ -252,8 +284,11 @@ bool start_server(uint16_t port, const std::string &username, bool hostPlaysWhit
             std::istringstream iss(line.substr(5));
             string clientName, clientPass;
             iss >> clientName >> clientPass;
-            if (!password.empty() && clientPass != password)
+            if (!password.empty() && !constant_time_equal(password, clientPass))
             {
+                failed_join_attempts++;
+                const int delay_ms = std::min(failed_join_attempts * 500, 5000);
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
                 (void)send_line(cliSock, "DENY");
                 ::close(cliSock);
                 // Do not kill the server; keep listening for others
@@ -306,6 +341,7 @@ void close_connection(NetConnection &conn)
 int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
 {
     set_chess_gui_mode(gui, ChessGuiMode::network_game);
+    set_chess_gui_local_player_color(gui, conn.myPlaysWhite ? playerColor::white : playerColor::black);
     cout << (conn.myPlaysWhite ? "You are White." : "You are Black.") << endl;
     cout << "You: " << conn.myName << ", Opponent: " << conn.peerName << endl;
 
