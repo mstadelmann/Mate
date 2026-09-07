@@ -45,9 +45,17 @@ MainMenuChoice MainMenu(bool print_menu)
         std::string cmd;
         if (!(std::cin >> cmd) || cmd.empty())
         {
+            if (std::cin.eof())
+            {
+                // Closed/exhausted stdin: clearing the stream state would not
+                // make more input appear, so retrying here would just spin
+                // forever re-printing the error below.
+                cout << "\nInput closed. Quitting." << endl;
+                return MainMenuChoice::Quit;
+            }
             std::cin.clear();
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-            cout << "Error: please enter a number between 1 and 6." << endl;
+            cout << "Error: please enter a number between 1 and 7." << endl;
             continue;
         }
 
@@ -57,7 +65,7 @@ MainMenuChoice MainMenu(bool print_menu)
             return choice;
         }
 
-        cout << "Error: please enter a number between 1 and 6." << endl;
+        cout << "Error: please enter a number between 1 and 7." << endl;
     }
 }
 
@@ -100,6 +108,9 @@ bool try_parse_main_menu_command(const std::string &cmd, MainMenuChoice &choice)
         choice = MainMenuChoice::StartNetworkGame;
         return true;
     case '6':
+        choice = MainMenuChoice::Settings;
+        return true;
+    case '7':
         choice = MainMenuChoice::Quit;
         return true;
     default:
@@ -130,6 +141,13 @@ GameMenuChoice GameMenu(bool print_menu)
 
         if (!(std::cin >> cmd) || cmd.empty())
         {
+            if (std::cin.eof())
+            {
+                // Closed/exhausted stdin: clearing the stream state would not
+                // make more input appear, so retrying here would spin forever.
+                cout << "\nInput closed. Quitting game." << endl;
+                return GameMenuChoice::Quit;
+            }
             std::cin.clear();
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
             cout << "Unknown command." << endl;

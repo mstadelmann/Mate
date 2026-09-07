@@ -608,6 +608,7 @@ namespace
 } // namespace
 
 void game_loop(chess &, ChessGui *gui = nullptr);
+void run_settings_menu();
 
 int main(int argc, char *argv[])
 {
@@ -774,6 +775,9 @@ int main(int argc, char *argv[])
                 LoadFromDatabase(game);
             }
             break;
+        case MainMenuChoice::Settings:
+            run_settings_menu();
+            break;
         case MainMenuChoice::Quit:
             cout << "\nQuitting." << endl;
             return 0;
@@ -783,6 +787,236 @@ int main(int argc, char *argv[])
         }
     }
     return 0;
+}
+
+namespace
+{
+    void print_settings_menu()
+    {
+        cout << "\nSettings (file: " << get_config_file_path() << "):\n";
+        cout << "  1. Pawn value: " << pawnValue << "\n";
+        cout << "  2. Knight value: " << knightValue << "\n";
+        cout << "  3. Bishop value: " << bishopValue << "\n";
+        cout << "  4. Rook value: " << rookValue << "\n";
+        cout << "  5. Queen value: " << queenValue << "\n";
+        cout << "  6. King value: " << kingValue << "\n";
+        cout << "  7. Position gamma (0=ignore position, 1=full weight): " << position_gamma << "\n";
+        cout << "  8. Early checkmate score: " << earlyMattVal << "\n";
+        cout << "  9. Final checkmate score: " << finalMattVal << "\n";
+        cout << " 10. Draw/stalemate score: " << finalPattVal << "\n";
+        cout << " 11. Search depth (minMaxDepth): " << minMaxDepth << "\n";
+        cout << " 12. Alpha-beta pruning enabled: " << (use_AB_pruning ? "yes" : "no") << "\n";
+        cout << " 13. Debug messages enabled: " << (enable_debug_messages ? "yes" : "no") << "\n";
+        cout << " 14. Database path: " << db_path << "\n";
+        cout << " 15. Network port: " << network_port << "\n";
+        cout << " 16. ML model path: " << (ml_model_path.empty() ? "(none)" : ml_model_path) << "\n";
+        cout << "\nNote: the 8x8 positional evaluation tables (pawnEvalWhite, etc.) are\n"
+                "stored in config.json but are not editable here - edit the file\n"
+                "directly if you need to change those.\n";
+        cout << "\nEnter a number to edit that field, 's' to save to disk, or 'b' to go back: " << std::flush;
+    }
+
+    // Every prompt_* helper reads the rest of the current line (after the
+    // menu-number/letter already consumed by `std::cin >> cmd` in the caller)
+    // so the new value can contain spaces (paths) or be left blank to cancel.
+    bool prompt_int(const char *label, int &value)
+    {
+        cout << label << " (current: " << value << "), new value (blank to cancel): " << std::flush;
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::string line;
+        std::getline(std::cin, line);
+        if (line.empty())
+        {
+            cout << "Unchanged." << endl;
+            return false;
+        }
+        try
+        {
+            size_t consumed = 0;
+            value = std::stoi(line, &consumed);
+            return true;
+        }
+        catch (const std::exception &)
+        {
+            cout << "Not a valid whole number; unchanged." << endl;
+            return false;
+        }
+    }
+
+    bool prompt_double(const char *label, double &value)
+    {
+        cout << label << " (current: " << value << "), new value (blank to cancel): " << std::flush;
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::string line;
+        std::getline(std::cin, line);
+        if (line.empty())
+        {
+            cout << "Unchanged." << endl;
+            return false;
+        }
+        try
+        {
+            size_t consumed = 0;
+            value = std::stod(line, &consumed);
+            return true;
+        }
+        catch (const std::exception &)
+        {
+            cout << "Not a valid number; unchanged." << endl;
+            return false;
+        }
+    }
+
+    bool prompt_bool(const char *label, bool &value)
+    {
+        cout << label << " (current: " << (value ? "yes" : "no") << "), new value (y/n, blank to cancel): " << std::flush;
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::string line;
+        std::getline(std::cin, line);
+        if (line.empty())
+        {
+            cout << "Unchanged." << endl;
+            return false;
+        }
+        const char c = static_cast<char>(std::tolower(static_cast<unsigned char>(line[0])));
+        if (c == 'y')
+        {
+            value = true;
+            return true;
+        }
+        if (c == 'n')
+        {
+            value = false;
+            return true;
+        }
+        cout << "Please answer y or n; unchanged." << endl;
+        return false;
+    }
+
+    bool prompt_string(const char *label, std::string &value)
+    {
+        cout << label << " (current: " << (value.empty() ? "(none)" : value) << "), new value (blank to clear): " << std::flush;
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::string line;
+        std::getline(std::cin, line);
+        value = line;
+        return true;
+    }
+} // namespace
+
+void run_settings_menu()
+{
+    bool unsaved_changes = false;
+
+    while (true)
+    {
+        print_settings_menu();
+        std::string cmd;
+        if (!(std::cin >> cmd))
+        {
+            std::cin.clear();
+            return;
+        }
+
+        if (cmd == "b" || cmd == "B")
+        {
+            if (unsaved_changes)
+            {
+                cout << "Discarding unsaved changes made this session." << endl;
+            }
+            return;
+        }
+
+        if (cmd == "s" || cmd == "S")
+        {
+            if (save_config_to_json())
+            {
+                cout << "Settings saved to " << get_config_file_path() << endl;
+                unsaved_changes = false;
+            }
+            else
+            {
+                cout << "Failed to save settings." << endl;
+            }
+            continue;
+        }
+
+        int field = 0;
+        try
+        {
+            size_t consumed = 0;
+            field = std::stoi(cmd, &consumed);
+            if (consumed != cmd.size())
+            {
+                field = 0;
+            }
+        }
+        catch (const std::exception &)
+        {
+            field = 0;
+        }
+
+        bool changed = false;
+        switch (field)
+        {
+        case 1:
+            changed = prompt_int("Pawn value", pawnValue);
+            break;
+        case 2:
+            changed = prompt_int("Knight value", knightValue);
+            break;
+        case 3:
+            changed = prompt_int("Bishop value", bishopValue);
+            break;
+        case 4:
+            changed = prompt_int("Rook value", rookValue);
+            break;
+        case 5:
+            changed = prompt_int("Queen value", queenValue);
+            break;
+        case 6:
+            changed = prompt_int("King value", kingValue);
+            break;
+        case 7:
+            changed = prompt_double("Position gamma", position_gamma);
+            break;
+        case 8:
+            changed = prompt_int("Early checkmate score", earlyMattVal);
+            break;
+        case 9:
+            changed = prompt_int("Final checkmate score", finalMattVal);
+            break;
+        case 10:
+            changed = prompt_int("Draw/stalemate score", finalPattVal);
+            break;
+        case 11:
+            changed = prompt_int("Search depth", minMaxDepth);
+            break;
+        case 12:
+            changed = prompt_bool("Alpha-beta pruning enabled", use_AB_pruning);
+            break;
+        case 13:
+            changed = prompt_bool("Debug messages enabled", enable_debug_messages);
+            break;
+        case 14:
+            changed = prompt_string("Database path", db_path);
+            break;
+        case 15:
+            changed = prompt_int("Network port", network_port);
+            break;
+        case 16:
+            changed = prompt_string("ML model path", ml_model_path);
+            break;
+        default:
+            cout << "Unknown option." << endl;
+            break;
+        }
+
+        if (changed)
+        {
+            unsaved_changes = true;
+        }
+    }
 }
 
 void game_loop(chess &game, ChessGui *gui)

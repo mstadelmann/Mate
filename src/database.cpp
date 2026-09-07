@@ -331,11 +331,18 @@ namespace
                                          { return std::isdigit(ch); });
             if (is_digits)
             {
-                int idx = std::stoi(choice);
-                if (idx >= 1 && idx <= static_cast<int>(games.size()))
+                try
                 {
-                    selectedName = games[idx - 1].first;
-                    break;
+                    int idx = std::stoi(choice);
+                    if (idx >= 1 && idx <= static_cast<int>(games.size()))
+                    {
+                        selectedName = games[idx - 1].first;
+                        break;
+                    }
+                }
+                catch (const std::out_of_range &)
+                {
+                    // Falls through to "Invalid selection" below.
                 }
             }
             for (const auto &g : games)

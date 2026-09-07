@@ -2,6 +2,9 @@
 #include <string>
 #include <fstream>
 #include <sstream>
+#include <iostream>
+#include <algorithm>
+#include <limits>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <cstdlib>
@@ -379,6 +382,11 @@ void init_config_defaults()
     normalize_config_paths();
 }
 
+std::string get_config_file_path()
+{
+    return getConfigFilePath();
+}
+
 bool save_config_to_json()
 {
     std::string path = getConfigFilePath();
@@ -457,6 +465,11 @@ static bool parseArray(const std::string &content, const char *name, double a[8]
     pos = content.find('[', pos);
     if (pos == std::string::npos)
         return false;
+
+    // Parsed into a scratch buffer first so a malformed row (wrong element
+    // count) can never partially overwrite `a` - on failure the caller's
+    // existing (default or previously loaded) values are left untouched.
+    double parsed[8][8] = {};
     int r = 0, c = 0;
     for (size_t i = pos; i < content.size() && r < 8; ++i)
     {
@@ -469,7 +482,7 @@ static bool parseArray(const std::string &content, const char *name, double a[8]
             char *endp = nullptr;
             double val = strtod(&content[i], &endp);
             if (c < 8)
-                a[r][c++] = val;
+                parsed[r][c++] = val;
             i = endp - &content[0] - 1;
         }
         else if (content[i] == ']')
@@ -478,7 +491,18 @@ static bool parseArray(const std::string &content, const char *name, double a[8]
                 r++;
         }
     }
-    return r == 8;
+
+    if (r != 8)
+    {
+        std::cerr << "Warning: config.json entry \"" << name
+                   << "\" is not a valid 8x8 array; keeping previous values." << std::endl;
+        return false;
+    }
+
+    for (int row = 0; row < 8; ++row)
+        for (int col = 0; col < 8; ++col)
+            a[row][col] = parsed[row][col];
+    return true;
 }
 
 bool load_config_from_json()
@@ -510,7 +534,11 @@ bool load_config_from_json()
         double d;
         if (!findNum(key, d))
             return false;
-        out = (int)d;
+        // Values outside int range would otherwise be UB on cast (e.g. a
+        // malformed/hand-edited config.json field like 1e20).
+        constexpr double int_min = static_cast<double>(std::numeric_limits<int>::min());
+        constexpr double int_max = static_cast<double>(std::numeric_limits<int>::max());
+        out = static_cast<int>(std::clamp(d, int_min, int_max));
         return true;
     };
     auto findBool = [&](const char *key, bool &out)

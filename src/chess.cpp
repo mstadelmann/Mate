@@ -8,6 +8,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <algorithm>
+#include <cctype>
 
 chess::chess()
 {
@@ -373,6 +374,8 @@ void chess::printCurrentGame()
                 std::cout << "     Draw by fifty-move rule.\n";
             else if (is_threefold_repetition())
                 std::cout << "     Draw by threefold repetition.\n";
+            else if (is_insufficient_material())
+                std::cout << "     Draw by insufficient material.\n";
             else if (white_checked)
                 std::cout << "     White is in check!\n";
             else if (black_checked)
@@ -429,15 +432,46 @@ bool chess::randomMove()
 
 bool chess::manualMove()
 {
-    string startField, endField;
-    std::cout << "Enter move (e.g. E2 E4): " << std::flush;
-    std::cin >> startField >> endField;
+    std::cout << "Enter move (e.g. E2 E4, or E7 E8 N/B/R to under-promote - default is queen): " << std::flush;
+    string line;
+    std::getline(std::cin >> std::ws, line);
+
+    std::istringstream iss(line);
+    string startField, endField, promotionField;
+    iss >> startField >> endField >> promotionField;
+
+    if (startField.empty() || endField.empty())
+    {
+        std::cout << "Illegal move." << std::endl;
+        return false;
+    }
 
     try
     {
         boardCoordinateType startCoord = chessCoordinatesFromString(startField);
         boardCoordinateType endCoord = chessCoordinatesFromString(endField);
-        if (applyMove(startCoord, endCoord, moved_by::human))
+
+        pieceCode promotionChoice = pieceCode::queen;
+        if (!promotionField.empty())
+        {
+            switch (std::toupper(static_cast<unsigned char>(promotionField[0])))
+            {
+            case 'R':
+                promotionChoice = pieceCode::rook;
+                break;
+            case 'B':
+                promotionChoice = pieceCode::bishop;
+                break;
+            case 'N':
+                promotionChoice = pieceCode::knight;
+                break;
+            default:
+                promotionChoice = pieceCode::queen;
+                break;
+            }
+        }
+
+        if (applyMove(startCoord, endCoord, moved_by::human, promotionChoice))
         {
             return true;
         }
@@ -452,30 +486,74 @@ bool chess::manualMove()
     return false;
 }
 
-bool chess::applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who)
+namespace
 {
-    motionVector legalMoves = findAllLegalMoves();
-    for (const auto &legalMove : legalMoves)
+    moveType promotion_move_type_for(pieceCode piece)
     {
-        if (legalMove.start_position.coord.file == startCoord.file &&
-            legalMove.start_position.coord.rank == startCoord.rank &&
-            legalMove.dest_position.coord.file == endCoord.file &&
-            legalMove.dest_position.coord.rank == endCoord.rank)
+        switch (piece)
         {
-            motionType moveToMake = legalMove;
-            moveToMake.moved_by_whom = who;
-            executeMove(moveToMake);
-            swapPlayers();
-            return true;
+        case pieceCode::rook:
+            return moveType::promotion_rook;
+        case pieceCode::bishop:
+            return moveType::promotion_bishop;
+        case pieceCode::knight:
+            return moveType::promotion_knight;
+        default:
+            return moveType::promotion_queen;
         }
     }
 
-    return false;
+    bool is_promotion_move(moveType type)
+    {
+        return type == moveType::promotion_queen || type == moveType::promotion_rook ||
+               type == moveType::promotion_bishop || type == moveType::promotion_knight;
+    }
+}
+
+bool chess::applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who, pieceCode promotionChoice)
+{
+    motionVector legalMoves = findAllLegalMoves();
+    const motionType *matchedMove = nullptr;
+    for (const auto &legalMove : legalMoves)
+    {
+        if (legalMove.start_position.coord.file != startCoord.file ||
+            legalMove.start_position.coord.rank != startCoord.rank ||
+            legalMove.dest_position.coord.file != endCoord.file ||
+            legalMove.dest_position.coord.rank != endCoord.rank)
+        {
+            continue;
+        }
+
+        // A promotion square has four candidate moves (one per piece); every
+        // other square has exactly one, so a non-promotion match is final.
+        if (!is_promotion_move(legalMove.type_of_move))
+        {
+            matchedMove = &legalMove;
+            break;
+        }
+        if (legalMove.type_of_move == promotion_move_type_for(promotionChoice))
+        {
+            matchedMove = &legalMove;
+            break;
+        }
+    }
+
+    if (matchedMove == nullptr)
+    {
+        return false;
+    }
+
+    motionType moveToMake = *matchedMove;
+    moveToMake.moved_by_whom = who;
+    executeMove(moveToMake);
+    swapPlayers();
+    return true;
 }
 
 motionVector chess::findAllLegalMoves()
 {
     motionVector allLegalMoves;
+    allLegalMoves.reserve(64); // typical legal-move counts rarely exceed this
 
     // For each piece of the current player, find its legal moves
     vector<boardPositionType> playerPieces = get_all_pieces_of_color(current_player);
@@ -519,9 +597,10 @@ motionVector chess::findAllLegalMoves()
     return allLegalMoves;
 }
 
-vector<boardPositionType> chess::get_all_pieces_of_color(playerColor color)
+vector<boardPositionType> chess::get_all_pieces_of_color(playerColor color) const
 {
     vector<boardPositionType> piecesList;
+    piecesList.reserve(16); // at most 16 pieces per side
 
     for (int file = 0; file < 8; file++)
     {
@@ -609,13 +688,30 @@ void chess::executeMove(motionType moveToExecute)
         place_piece(startPos.coord, {pieceCode::empty, playerColor::none});
     }
 
-    // check if pawn reached last row -> new queen
+    // check if pawn reached last row -> promote to the requested piece
+    // (defaulting to queen if the move wasn't generated as one of the four
+    // promotion variants, e.g. an older caller that just says "normal")
     if (query_position(destPos.coord).piece.piece == pieceCode::pawn)
     {
         if (((current_player == playerColor::white) && (destPos.coord.rank == 8)) || ((current_player == playerColor::black) && (destPos.coord.rank == 1)))
         {
-            moveToExecute.type_of_move = moveType::promotion_queen;
-            place_piece(destPos.coord, {pieceCode::queen, current_player});
+            pieceCode promotedPiece = pieceCode::queen;
+            switch (moveToExecute.type_of_move)
+            {
+            case moveType::promotion_rook:
+                promotedPiece = pieceCode::rook;
+                break;
+            case moveType::promotion_bishop:
+                promotedPiece = pieceCode::bishop;
+                break;
+            case moveType::promotion_knight:
+                promotedPiece = pieceCode::knight;
+                break;
+            default:
+                moveToExecute.type_of_move = moveType::promotion_queen;
+                break;
+            }
+            place_piece(destPos.coord, {promotedPiece, current_player});
         }
     }
 
@@ -722,6 +818,52 @@ bool chess::is_threefold_repetition() const
     return occurrences >= 3;
 }
 
+bool chess::is_insufficient_material() const
+{
+    // Only the uncontroversial cases where neither side can ever force mate:
+    // K vs K, K vs K+(one minor), and K+B vs K+B. Anything else (two minors
+    // on one side, a rook/queen/pawn anywhere, etc.) is left undetected
+    // rather than risk misjudging a position that is still winnable.
+    struct NonKingMaterial
+    {
+        int minor_count = 0;
+        pieceCode minor = pieceCode::empty;
+        bool has_major_or_pawn = false;
+    };
+
+    auto survey = [this](playerColor color)
+    {
+        NonKingMaterial material;
+        for (const auto &piece_pos : get_all_pieces_of_color(color))
+        {
+            const pieceCode piece = piece_pos.piece.piece;
+            if (piece == pieceCode::king)
+                continue;
+            if (piece != pieceCode::bishop && piece != pieceCode::knight)
+            {
+                material.has_major_or_pawn = true;
+                continue;
+            }
+            material.minor = piece;
+            material.minor_count++;
+        }
+        return material;
+    };
+
+    const NonKingMaterial white = survey(playerColor::white);
+    const NonKingMaterial black = survey(playerColor::black);
+
+    if (white.has_major_or_pawn || black.has_major_or_pawn)
+        return false;
+    if (white.minor_count > 1 || black.minor_count > 1)
+        return false;
+    if (white.minor_count == 0 && black.minor_count == 0)
+        return true; // K vs K
+    if (white.minor_count == 0 || black.minor_count == 0)
+        return true; // K vs K+minor
+    return white.minor == pieceCode::bishop && black.minor == pieceCode::bishop; // K+B vs K+B
+}
+
 bool chess::currentlyChecked()
 {
     boardCoordinateType kingPos = findKing();
@@ -747,6 +889,28 @@ motionVector chess::findLegalPawnMoves(boardCoordinateType from)
 
     const int direction = (current_player == playerColor::white) ? 1 : -1; // white moves up, black down
     const int startRank = (current_player == playerColor::white) ? 2 : 7;  // zero indexed!
+    const int promotionRank = (current_player == playerColor::white) ? 8 : 1;
+
+    // A move landing on the last rank expands into all four promotion
+    // choices (each a distinct candidate move with the same start/end
+    // squares) rather than just auto-queen, so applyMove() can select
+    // whichever the caller (or the search) actually wants.
+    auto push_pawn_move = [&](motionType move, int destRank)
+    {
+        if (destRank == promotionRank)
+        {
+            for (moveType promo : {moveType::promotion_queen, moveType::promotion_rook,
+                                    moveType::promotion_bishop, moveType::promotion_knight})
+            {
+                move.type_of_move = promo;
+                legalMoves.push_back(move);
+            }
+        }
+        else
+        {
+            legalMoves.push_back(move);
+        }
+    };
 
     // Single square forward
     boardCoordinateType ahead = {from.file, from.rank + direction};
@@ -759,12 +923,7 @@ motionVector chess::findLegalPawnMoves(boardCoordinateType from)
 
         if (check_move_legal(move))
         {
-            // check if pawn reaches last rank for promotion
-            if ((current_player == playerColor::white && ahead.rank == 8) || (current_player == playerColor::black && ahead.rank == 1))
-            {
-                move.type_of_move = moveType::promotion_queen;
-            }
-            legalMoves.push_back(move);
+            push_pawn_move(move, ahead.rank);
         }
     }
 
@@ -791,7 +950,7 @@ motionVector chess::findLegalPawnMoves(boardCoordinateType from)
             {
                 motionType move = {query_position(from), query_position(diag), moveType::capture, moved_by::none, 0};
                 if (check_move_legal(move))
-                    legalMoves.push_back(move);
+                    push_pawn_move(move, diag.rank);
             }
             // En passant capture when target square matches ep target
             if (en_passant_target.rank != 0 && en_passant_target.file == diag.file && en_passant_target.rank == diag.rank)
@@ -1076,8 +1235,25 @@ void chess::listLegalMoves()
         std::cout << pieceTypeToChar(move.start_position.piece) << " at "
                   << move.start_position.coord.file << move.start_position.coord.rank
                   << " to "
-                  << move.dest_position.coord.file << move.dest_position.coord.rank
-                  << "\n";
+                  << move.dest_position.coord.file << move.dest_position.coord.rank;
+        switch (move.type_of_move)
+        {
+        case moveType::promotion_queen:
+            std::cout << " (promotes to Queen)";
+            break;
+        case moveType::promotion_rook:
+            std::cout << " (promotes to Rook)";
+            break;
+        case moveType::promotion_bishop:
+            std::cout << " (promotes to Bishop)";
+            break;
+        case moveType::promotion_knight:
+            std::cout << " (promotes to Knight)";
+            break;
+        default:
+            break;
+        }
+        std::cout << "\n";
     }
     std::cout << "Total legal moves: " << legalMoves.size() << "\n";
 }
@@ -1395,20 +1571,21 @@ motionType chess::smartMoveR(int depth, int alpha, int beta, moveType bestMoveTy
 
     bestMove.type_of_move = bestMoveType;
 
-    // // Simple move ordering: captures first (MVV-LVA)
-    // auto pieceScore = [&](pieceCode pc)
-    // { return getPieceValue(pc); };
-    // auto moveScore = [&](const motionType &m)
-    // {
-    //     pieceType dst = query_position(m.dest_position.coord).piece;
-    //     pieceType src = m.start_position.piece;
-    //     bool isCap = (m.type_of_move == moveType::en_passant) || (dst.piece != pieceCode::empty && dst.color == other_player);
-    //     if (!isCap)
-    //         return 0;
-    //     return 1000 + pieceScore(dst.piece) - pieceScore(src.piece);
-    // };
-    // std::stable_sort(legalMovesList.begin(), legalMovesList.end(), [&](const motionType &a, const motionType &b)
-    //                  { return moveScore(a) > moveScore(b); });
+    // Simple move ordering: captures first (MVV-LVA), which raises the
+    // alpha-beta cutoff rate since strong moves are examined earlier.
+    auto pieceScore = [&](pieceCode pc)
+    { return getPieceValue(pc); };
+    auto moveScore = [&](const motionType &m)
+    {
+        pieceType dst = query_position(m.dest_position.coord).piece;
+        pieceType src = m.start_position.piece;
+        bool isCap = (m.type_of_move == moveType::en_passant) || (dst.piece != pieceCode::empty && dst.color == other_player);
+        if (!isCap)
+            return 0;
+        return 1000 + pieceScore(dst.piece) - pieceScore(src.piece);
+    };
+    std::stable_sort(legalMovesList.begin(), legalMovesList.end(), [&](const motionType &a, const motionType &b)
+                     { return moveScore(a) > moveScore(b); });
 
     bool is_white = (current_player == playerColor::white);
     bool is_black = (current_player == playerColor::black);
@@ -1432,6 +1609,12 @@ motionType chess::smartMoveR(int depth, int alpha, int beta, moveType bestMoveTy
         return bestMove;
     }
 
+    // Insufficient material is intentionally not checked here: it requires a
+    // full board scan and this runs on every search node, whereas the other
+    // two draw checks are cheap by comparison. Reaching a bare-kings-ish
+    // position without triggering fifty-move/repetition first is rare enough
+    // that the evaluation function alone (near-zero material) already steers
+    // the search away from it.
     if (is_fifty_move_draw() || is_threefold_repetition())
     {
         RecFuncCounter++;

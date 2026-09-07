@@ -193,8 +193,18 @@ namespace
             return false;
         }
 
-        float *out_data = output_tensors[0].GetTensorMutableData<float>();
-        // Assume shape (1, 64) or (64,).
+        // Assume shape (1, 64) or (64,); verify before reading, since a
+        // mismatched/corrupt model (ml_model_path is config-controlled)
+        // would otherwise cause an out-of-bounds read here.
+        const size_t element_count = output_tensors[0].GetTensorTypeAndShapeInfo().GetElementCount();
+        if (element_count < scores.size())
+        {
+            std::cerr << "[ML] ONNX model output has " << element_count
+                       << " elements, expected at least " << scores.size() << "." << std::endl;
+            return false;
+        }
+
+        const float *out_data = output_tensors[0].GetTensorMutableData<float>();
         for (size_t i = 0; i < scores.size(); ++i)
         {
             scores[i] = out_data[i];

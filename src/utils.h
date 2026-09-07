@@ -25,6 +25,7 @@ void printLogo(void);
     X(LoadFromDatabase, "Load game from database")                \
     X(PLAY, "Play with current board configuration")              \
     X(StartNetworkGame, "Network game")                           \
+    X(Settings, "Settings (view/edit config.json)")               \
     X(Quit, "Quit")
 
 enum class MainMenuChoice

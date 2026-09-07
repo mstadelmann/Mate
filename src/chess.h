@@ -167,7 +167,7 @@ public:
     void place_piece(boardPositionType);
     void place_piece(boardCoordinateType, pieceType);
     boardPositionType query_position(boardCoordinateType);
-    vector<boardPositionType> get_all_pieces_of_color(playerColor);
+    vector<boardPositionType> get_all_pieces_of_color(playerColor) const;
     motionVector findAllLegalMoves();
 
     motionVector findLegalPawnMoves(boardCoordinateType);
@@ -177,7 +177,7 @@ public:
     motionVector findLegalQueenMoves(boardCoordinateType);
     motionVector findLegalKingMoves(boardCoordinateType);
     bool validatePosition(boardCoordinateType) const;
-    bool applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who = moved_by::human);
+    bool applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who = moved_by::human, pieceCode promotionChoice = pieceCode::queen);
     bool check_move_legal(motionType);
     void executeMove(motionType);
     bool manualMove();
@@ -231,7 +231,8 @@ public:
     }
     bool is_fifty_move_draw() const { return halfmove_clock >= 100; }
     bool is_threefold_repetition() const;
-    bool is_draw() const { return is_fifty_move_draw() || is_threefold_repetition(); }
+    bool is_insufficient_material() const;
+    bool is_draw() const { return is_fifty_move_draw() || is_threefold_repetition() || is_insufficient_material(); }
     std::size_t move_count() const { return gameHistory.empty() ? 0U : (gameHistory.size() - 1U); }
     bool has_played_moves() const { return gameHistory.size() > 1U; }
 };

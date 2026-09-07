@@ -769,29 +769,6 @@ namespace
         return color_name(piece.color) + " " + pieceCodeToString(piece.piece);
     }
 
-    std::array<SDL_Rect, kEditorPalette.size()> compute_editor_palette_rects(const Layout &layout)
-    {
-        std::array<SDL_Rect, kEditorPalette.size()> rects{};
-        const int gap = 8;
-        const int columns = 3;
-        const int cell_width = std::max(58, (layout.panel_rect.w - (gap * (columns - 1))) / columns);
-        const int cell_height = 58;
-        const int start_y = layout.info_rect.y + layout.info_rect.h + 12;
-
-        for (std::size_t i = 0; i < rects.size(); ++i)
-        {
-            const int row = static_cast<int>(i) / columns;
-            const int column = static_cast<int>(i) % columns;
-            rects[i] = SDL_Rect{
-                layout.panel_rect.x + (column * (cell_width + gap)),
-                start_y + (row * (cell_height + gap)),
-                cell_width,
-                cell_height};
-        }
-
-        return rects;
-    }
-
     std::array<SDL_Rect, kEditorButtons.size()> compute_editor_button_rects(const Layout &layout)
     {
         std::array<SDL_Rect, kEditorButtons.size()> rects{};
@@ -810,6 +787,36 @@ namespace
                 start_y + (row * (height + gap)),
                 width,
                 height};
+        }
+
+        return rects;
+    }
+
+    // Cell height is derived from the space actually left between the info
+    // panel and the editor buttons rather than a fixed 58px: at the default
+    // window size the fixed height left the last palette row overlapping the
+    // buttons below it, only resolved once the window was enlarged by hand.
+    std::array<SDL_Rect, kEditorPalette.size()> compute_editor_palette_rects(const Layout &layout)
+    {
+        std::array<SDL_Rect, kEditorPalette.size()> rects{};
+        const int gap = 8;
+        const int columns = 3;
+        const int rows = (static_cast<int>(rects.size()) + columns - 1) / columns;
+        const int cell_width = std::max(58, (layout.panel_rect.w - (gap * (columns - 1))) / columns);
+        const int start_y = layout.info_rect.y + layout.info_rect.h + 12;
+        const int buttons_top = compute_editor_button_rects(layout)[0].y;
+        const int available_height = (buttons_top - gap) - start_y;
+        const int cell_height = std::clamp((available_height - (gap * (rows - 1))) / rows, 24, 58);
+
+        for (std::size_t i = 0; i < rects.size(); ++i)
+        {
+            const int row = static_cast<int>(i) / columns;
+            const int column = static_cast<int>(i) % columns;
+            rects[i] = SDL_Rect{
+                layout.panel_rect.x + (column * (cell_width + gap)),
+                start_y + (row * (cell_height + gap)),
+                cell_width,
+                cell_height};
         }
 
         return rects;

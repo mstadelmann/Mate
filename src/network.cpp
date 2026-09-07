@@ -340,8 +340,11 @@ void close_connection(NetConnection &conn)
 
 int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
 {
-    set_chess_gui_mode(gui, ChessGuiMode::network_game);
+    // Set the color before switching the mode: both are read under the same
+    // GUI mutex, so this ordering guarantees the drag-gate in gui.cpp never
+    // observes mode == network_game with a still-default local_player_color_.
     set_chess_gui_local_player_color(gui, conn.myPlaysWhite ? playerColor::white : playerColor::black);
+    set_chess_gui_mode(gui, ChessGuiMode::network_game);
     cout << (conn.myPlaysWhite ? "You are White." : "You are Black.") << endl;
     cout << "You: " << conn.myName << ", Opponent: " << conn.peerName << endl;
 

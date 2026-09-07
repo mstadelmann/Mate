@@ -99,6 +99,7 @@ Model and training notes live in [torch_model/torch_model.md](torch_model/torch_
 - `Load game from database`: browse stored games and load a snapshot
 - `Play with current board configuration`: start from whatever board is currently loaded
 - `Network game`: host or join a TCP game
+- `Settings`: view, edit, and save the engine/network settings stored in `~/.mate/config.json` (the 8x8 positional evaluation tables are not editable here - edit the file directly for those)
 - `Quit`: exit Mate
 
 ## In-Game Commands
@@ -197,7 +198,7 @@ While connected:
 
 - Loading or hand-crafting an arbitrary board snapshot does not reconstruct full historical move state; Mate conservatively disables castling and en passant unless the board is the standard starting position
 - terminal rendering assumes UTF-8 support for the chess glyphs
-- draws are detected for stalemate, the fifty-move rule, and threefold repetition (by piece placement only, not full position state); insufficient-material draws are not yet detected
+- draws are detected for stalemate, the fifty-move rule, threefold repetition (by piece placement only, not full position state), and insufficient material (K vs K, K vs K+minor, and K+B vs K+B only; other dead positions such as two minors on one side are not detected)
 - network play has no encryption; the optional password only slows down guessing (a delay grows with each wrong attempt) and does not protect move/chat traffic from anyone who can observe the connection
 
 ## Project Layout
