@@ -1,6 +1,6 @@
 # Mate
 
-Mate is a terminal chess program with:
+Mate is a terminal chess program built from scratch in C++ - no external chess library, no bundled engine - with:
 
 - a menu-driven CLI
 - a board editor for custom positions
@@ -16,9 +16,11 @@ Mate is a terminal chess program with:
 - Start from the standard chess opening or from a custom board
 - Play manual, random, smart-engine, or optional ML-generated moves
 - Undo using full board/state snapshots
+- Detects checkmate, stalemate, the fifty-move rule, threefold repetition, and basic insufficient-material draws
 - Save complete games and board snapshots to SQLite
 - Browse saved games interactively from the terminal
 - Host or join a network game with player names and chat
+- Optional GUI window with drag-and-drop pieces, quick-action buttons, and dedicated screens for the board editor, database browser, and network setup
 - Build and test on GitHub Actions with a Linux CI workflow
 
 ## Requirements
@@ -68,6 +70,16 @@ The GUI uses real Unicode chess-piece glyphs from a system font, supports drag-a
 On first launch, Mate creates `~/.mate/config.json` when it does not already exist.
 
 The supported and CI-verified path is a fresh local build from `./build/Mate`.
+
+## Running Tests
+
+CTest is enabled by default, so the test binary builds right alongside `Mate`:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+The tests drive the rules engine directly - checkmate/stalemate/draw detection, castling rights, undo - so they don't need a display or a database file to pass.
 
 ## Optional ML Support
 
@@ -136,22 +148,19 @@ Colors:
 
 ## Configuration
 
-Mate stores its runtime configuration in `~/.mate/config.json`.
+Mate stores its runtime configuration in `~/.mate/config.json`, created with defaults on first launch. The `Settings` entry in the main menu can view, edit, and save most of it without opening the file by hand.
 
-Useful keys:
+| Key | Meaning |
+| --- | --- |
+| `minMaxDepth` | search depth for smart moves |
+| `use_AB_pruning` | enable or disable alpha-beta pruning |
+| `position_gamma` | weight applied to piece-square tables |
+| `enable_debug_messages` | extra debug logging |
+| `db_path` | SQLite database path |
+| `network_port` | TCP port for host/join mode |
+| `ml_model_path` | ONNX model path |
 
-- `minMaxDepth`: search depth for smart moves
-- `use_AB_pruning`: enable or disable alpha-beta pruning
-- `position_gamma`: weight applied to piece-square tables
-- `enable_debug_messages`: extra debug logging
-- `db_path`: SQLite database path
-- `network_port`: TCP port for host/join mode
-- `ml_model_path`: ONNX model path
-
-Path notes:
-
-- `db_path` and `ml_model_path` may use `~`
-- Mate expands those paths when loading the config
+`db_path` and `ml_model_path` may use `~`; Mate expands both when loading the config. The 8x8 piece-square tables (`pawnEvalWhite`, `knightEvalBlack`, and so on) also live in this file but aren't exposed in the Settings menu - edit them directly if you want to retune the evaluation.
 
 ## Database
 
@@ -193,7 +202,6 @@ While connected:
 - use `c` to send chat messages
 - use `a`, `l`, `w`, `h`, `q` for the same helpers as local play
 
-
 ## Known Limits
 
 - Loading or hand-crafting an arbitrary board snapshot does not reconstruct full historical move state; Mate conservatively disables castling and en passant unless the board is the standard starting position
@@ -204,6 +212,7 @@ While connected:
 ## Project Layout
 
 - `src/`: engine, UI, networking, persistence, and config code
+- `tests/`: rules-engine smoke tests run via CTest
 - `torch_model/`: model assets, training scripts, and data prep helpers
-- `.github/workflows/`: CI and release automation
+- `.github/workflows/`: CI, plus automated patch/minor version bumps on PR pushes and merges
 
