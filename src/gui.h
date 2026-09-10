@@ -15,6 +15,7 @@ enum class ChessGuiMode
     board_editor,
     database_browser,
     network_setup,
+    settings,
     busy
 };
 
@@ -44,7 +45,10 @@ enum class ChessGuiActionType
     database_load_snapshot,
     database_back,
     network_submit,
-    network_back
+    network_back,
+    open_settings,
+    settings_save,
+    settings_back
 };
 
 struct ChessGuiDatabaseEntry
@@ -87,6 +91,32 @@ struct ChessGuiNetworkState
     bool waiting_for_peer = false;
 };
 
+// One editable config.json entry: `value` is always the raw text the user
+// sees/types, even for numeric fields, since the GUI edits it as a plain
+// text field; `is_bool` fields are toggled ("yes"/"no") by a click instead
+// of opening for typing. The field list order is meaningful - main.cpp
+// builds and parses it positionally, mirroring the CLI settings menu.
+struct ChessGuiSettingsField
+{
+    std::string label;
+    std::string value;
+    bool is_bool = false;
+};
+
+struct ChessGuiSettingsState
+{
+    std::vector<ChessGuiSettingsField> fields;
+    int selected_field_index = -1;
+    std::string status_message;
+};
+
+// Feedback for the in-game quick actions (Legal Moves, ML Move, Save) that
+// used to only print to the console the GUI window has no view of.
+struct ChessGuiGameActionState
+{
+    std::string message;
+};
+
 struct ChessGuiAction
 {
     ChessGuiActionType type = ChessGuiActionType::none;
@@ -107,6 +137,10 @@ public:
     virtual ChessGuiDatabaseState database_state() const = 0;
     virtual void set_network_state(const ChessGuiNetworkState &state) = 0;
     virtual ChessGuiNetworkState network_state() const = 0;
+    virtual void set_settings_state(const ChessGuiSettingsState &state) = 0;
+    virtual ChessGuiSettingsState settings_state() const = 0;
+    virtual void set_game_action_state(const ChessGuiGameActionState &state) = 0;
+    virtual ChessGuiGameActionState game_action_state() const = 0;
     // The color the local player actually controls in the active network
     // game (resolved after the host/join handshake); playerColor::none
     // outside of network play.
@@ -183,6 +217,32 @@ inline void set_chess_gui_local_player_color(ChessGui *gui, playerColor color)
     {
         gui->set_local_player_color(color);
     }
+}
+
+inline void set_chess_gui_settings_state(ChessGui *gui, const ChessGuiSettingsState &state)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_settings_state(state);
+    }
+}
+
+inline ChessGuiSettingsState get_chess_gui_settings_state(ChessGui *gui)
+{
+    return (gui != nullptr && gui->is_open()) ? gui->settings_state() : ChessGuiSettingsState{};
+}
+
+inline void set_chess_gui_game_action_state(ChessGui *gui, const ChessGuiGameActionState &state)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_game_action_state(state);
+    }
+}
+
+inline ChessGuiGameActionState get_chess_gui_game_action_state(ChessGui *gui)
+{
+    return (gui != nullptr && gui->is_open()) ? gui->game_action_state() : ChessGuiGameActionState{};
 }
 
 #endif /* GUI_H */

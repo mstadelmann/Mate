@@ -10,8 +10,13 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <sys/select.h>
 #include <unistd.h>
+
+// Defined later in this file (CLI settings menu); declared here so the
+// GUI-vs-CLI fallback in run_gui_settings_menu() can call it.
+void run_settings_menu();
 
 namespace
 {
@@ -160,6 +165,9 @@ namespace
         case ChessGuiActionType::start_network_game:
             selection = MainMenuChoice::StartNetworkGame;
             return true;
+        case ChessGuiActionType::open_settings:
+            selection = MainMenuChoice::Settings;
+            return true;
         default:
             return false;
         }
@@ -242,6 +250,15 @@ namespace
         }
 
         return playerColorToString(piece.color) + " " + pieceCodeToString(piece.piece);
+    }
+
+    std::string describe_last_move(chess &game)
+    {
+        const motionType last = game.getHistoryLast();
+        return piece_label(last.start_position.piece) + " " +
+               std::string(1, last.start_position.coord.file) + std::to_string(last.start_position.coord.rank) +
+               " to " +
+               std::string(1, last.dest_position.coord.file) + std::to_string(last.dest_position.coord.rank);
     }
 
     void run_gui_board_editor(chess &game, ChessGui *gui)
@@ -524,6 +541,150 @@ namespace
         }
     }
 
+    // Field order here is meaningful and must match the parsing switch in
+    // the "settings_save" handler below - both walk the same 16 config.json
+    // scalar settings the CLI's run_settings_menu() edits (see config.h);
+    // the 8x8 piece-square tables aren't exposed in either UI.
+    ChessGuiSettingsState build_gui_settings_state()
+    {
+        ChessGuiSettingsState state;
+        auto add_int = [&](const std::string &label, int value)
+        { state.fields.push_back({label, std::to_string(value), false}); };
+        auto add_double = [&](const std::string &label, double value)
+        {
+            std::ostringstream oss;
+            oss << value;
+            state.fields.push_back({label, oss.str(), false});
+        };
+        auto add_bool = [&](const std::string &label, bool value)
+        { state.fields.push_back({label, value ? "yes" : "no", true}); };
+        auto add_string = [&](const std::string &label, const std::string &value)
+        { state.fields.push_back({label, value, false}); };
+
+        add_int("Pawn value", pawnValue);
+        add_int("Knight value", knightValue);
+        add_int("Bishop value", bishopValue);
+        add_int("Rook value", rookValue);
+        add_int("Queen value", queenValue);
+        add_int("King value", kingValue);
+        add_double("Position gamma", position_gamma);
+        add_int("Early checkmate score", earlyMattVal);
+        add_int("Final checkmate score", finalMattVal);
+        add_int("Draw/stalemate score", finalPattVal);
+        add_int("Search depth", minMaxDepth);
+        add_bool("Alpha-beta pruning", use_AB_pruning);
+        add_bool("Debug messages", enable_debug_messages);
+        add_string("Database path", db_path);
+        add_int("Network port", network_port);
+        add_string("ML model path", ml_model_path);
+        return state;
+    }
+
+    void run_gui_settings_menu(ChessGui *gui)
+    {
+        if (gui == nullptr)
+        {
+            run_settings_menu();
+            return;
+        }
+
+        ChessGuiSettingsState state = build_gui_settings_state();
+        state.status_message = "Click a value to edit it; yes/no fields toggle on click.";
+        set_chess_gui_mode(gui, ChessGuiMode::settings);
+        set_chess_gui_settings_state(gui, state);
+
+        ChessGuiAction action;
+        while (wait_for_gui_action(gui, action))
+        {
+            if (action.type == ChessGuiActionType::settings_back)
+            {
+                set_chess_gui_mode(gui, ChessGuiMode::main_menu);
+                return;
+            }
+            if (action.type != ChessGuiActionType::settings_save)
+            {
+                continue;
+            }
+
+            ChessGuiSettingsState current = get_chess_gui_settings_state(gui);
+            std::vector<std::string> invalid_labels;
+
+            auto parse_int_field = [&](std::size_t index, int &target)
+            {
+                try
+                {
+                    std::size_t consumed = 0;
+                    const int parsed = std::stoi(current.fields[index].value, &consumed);
+                    if (consumed != current.fields[index].value.size())
+                    {
+                        throw std::invalid_argument("trailing characters");
+                    }
+                    target = parsed;
+                }
+                catch (const std::exception &)
+                {
+                    invalid_labels.push_back(current.fields[index].label);
+                }
+            };
+            auto parse_double_field = [&](std::size_t index, double &target)
+            {
+                try
+                {
+                    std::size_t consumed = 0;
+                    const double parsed = std::stod(current.fields[index].value, &consumed);
+                    if (consumed != current.fields[index].value.size())
+                    {
+                        throw std::invalid_argument("trailing characters");
+                    }
+                    target = parsed;
+                }
+                catch (const std::exception &)
+                {
+                    invalid_labels.push_back(current.fields[index].label);
+                }
+            };
+
+            parse_int_field(0, pawnValue);
+            parse_int_field(1, knightValue);
+            parse_int_field(2, bishopValue);
+            parse_int_field(3, rookValue);
+            parse_int_field(4, queenValue);
+            parse_int_field(5, kingValue);
+            parse_double_field(6, position_gamma);
+            parse_int_field(7, earlyMattVal);
+            parse_int_field(8, finalMattVal);
+            parse_int_field(9, finalPattVal);
+            parse_int_field(10, minMaxDepth);
+            use_AB_pruning = (current.fields[11].value == "yes");
+            enable_debug_messages = (current.fields[12].value == "yes");
+            db_path = current.fields[13].value;
+            parse_int_field(14, network_port);
+            ml_model_path = current.fields[15].value;
+
+            if (!invalid_labels.empty())
+            {
+                std::string joined;
+                for (std::size_t i = 0; i < invalid_labels.size(); ++i)
+                {
+                    if (i > 0)
+                    {
+                        joined += ", ";
+                    }
+                    joined += invalid_labels[i];
+                }
+                current.status_message = "Not saved - invalid value(s): " + joined + ".";
+                set_chess_gui_settings_state(gui, current);
+                continue;
+            }
+
+            const bool saved = save_config_to_json();
+            current.status_message = saved
+                ? ("Settings saved to " + get_config_file_path() + ".")
+                : "Failed to save settings.";
+            set_chess_gui_settings_state(gui, current);
+        }
+    }
+
     bool handle_game_menu_choice(chess &game, GameMenuChoice selection, bool &showMenu)
     {
         switch (selection)
@@ -574,7 +735,7 @@ namespace
         }
     }
 
-    bool handle_gui_action(chess &game, const ChessGuiAction &action, bool &showMenu)
+    bool handle_gui_action(chess &game, const ChessGuiAction &action, bool &showMenu, ChessGui *gui)
     {
         switch (action.type)
         {
@@ -587,17 +748,35 @@ namespace
         case ChessGuiActionType::smart_move:
             return handle_game_menu_choice(game, GameMenuChoice::SmartMove, showMenu);
         case ChessGuiActionType::ml_move:
-            return handle_game_menu_choice(game, GameMenuChoice::MLMove, showMenu);
+        {
+            const std::size_t moves_before = game.move_count();
+            const bool result = handle_game_menu_choice(game, GameMenuChoice::MLMove, showMenu);
+            const std::string message = (game.move_count() > moves_before)
+                ? ("ML move: " + describe_last_move(game))
+                : "ML move unavailable (see terminal for details).";
+            set_chess_gui_game_action_state(gui, {message});
+            return result;
+        }
         case ChessGuiActionType::random_move:
             return handle_game_menu_choice(game, GameMenuChoice::RandomMove, showMenu);
         case ChessGuiActionType::undo:
             return handle_game_menu_choice(game, GameMenuChoice::Undo, showMenu);
         case ChessGuiActionType::list_moves:
-            return handle_game_menu_choice(game, GameMenuChoice::ListAllMoves, showMenu);
+        {
+            const bool result = handle_game_menu_choice(game, GameMenuChoice::ListAllMoves, showMenu);
+            const std::size_t count = game.findAllLegalMoves().size();
+            set_chess_gui_game_action_state(gui, {std::to_string(count) + " legal move(s) for " + game.current_player_string() + " (full list printed to the terminal)."});
+            return result;
+        }
         case ChessGuiActionType::show_history:
             return handle_game_menu_choice(game, GameMenuChoice::ShowHistory, showMenu);
         case ChessGuiActionType::write_db:
-            return handle_game_menu_choice(game, GameMenuChoice::WriteDB, showMenu);
+        {
+            cout << "Writing to database..." << endl;
+            const bool saved = store_to_DB(game);
+            set_chess_gui_game_action_state(gui, {saved ? "Game saved to the database." : "Could not save to the database (see terminal)."});
+            return true;
+        }
         case ChessGuiActionType::quit_game:
             return handle_game_menu_choice(game, GameMenuChoice::Quit, showMenu);
         case ChessGuiActionType::none:
@@ -776,7 +955,7 @@ int main(int argc, char *argv[])
             }
             break;
         case MainMenuChoice::Settings:
-            run_settings_menu();
+            run_gui_settings_menu(gui.get());
             break;
         case MainMenuChoice::Quit:
             cout << "\nQuitting." << endl;
@@ -1049,7 +1228,7 @@ void game_loop(chess &game, ChessGui *gui)
 
         if (input.from_gui)
         {
-            if (!handle_gui_action(game, input.gui_action, showMenu))
+            if (!handle_gui_action(game, input.gui_action, showMenu, gui))
             {
                 set_chess_gui_mode(gui, ChessGuiMode::main_menu);
                 return;

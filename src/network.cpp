@@ -382,12 +382,19 @@ int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
             move_sent = true;
             return;
         case ChessGuiActionType::list_moves:
+        {
             game.listLegalMoves();
+            const std::size_t count = game.findAllLegalMoves().size();
+            set_chess_gui_game_action_state(gui, {std::to_string(count) + " legal move(s) for " + game.current_player_string() + " (full list printed to the terminal)."});
             return;
+        }
         case ChessGuiActionType::write_db:
+        {
             cout << "Writing to database..." << endl;
-            store_to_DB(game);
+            const bool saved = store_to_DB(game);
+            set_chess_gui_game_action_state(gui, {saved ? "Game saved to the database." : "Could not save to the database (see terminal)."});
             return;
+        }
         case ChessGuiActionType::quit_game:
             (void)send_line(conn.sock, "QUIT");
             cout << "You quit the game." << endl;

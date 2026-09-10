@@ -64,7 +64,8 @@ namespace
         editor_save_name,
         network_username,
         network_host,
-        network_password
+        network_password,
+        settings_value
     };
 
     struct MenuSpec
@@ -73,12 +74,13 @@ namespace
         const char *label;
     };
 
-    constexpr std::array<MenuSpec, 5> kMenuItems{{
+    constexpr std::array<MenuSpec, 6> kMenuItems{{
         {ChessGuiActionType::start_new_game, "New Game"},
         {ChessGuiActionType::board_editor, "Board Editor"},
         {ChessGuiActionType::load_from_database, "Load DB"},
         {ChessGuiActionType::play_current_board, "Play Current"},
         {ChessGuiActionType::start_network_game, "Network"},
+        {ChessGuiActionType::open_settings, "Settings"},
     }};
 
     constexpr std::array<ButtonSpec, 7> kButtons{{
@@ -128,6 +130,11 @@ namespace
     constexpr std::array<ButtonSpec, 2> kNetworkButtons{{
         {ChessGuiActionType::network_submit, "Start"},
         {ChessGuiActionType::network_back, "Back"},
+    }};
+
+    constexpr std::array<ButtonSpec, 2> kSettingsButtons{{
+        {ChessGuiActionType::settings_save, "Save"},
+        {ChessGuiActionType::settings_back, "Back"},
     }};
 
     struct Layout
@@ -636,6 +643,27 @@ namespace
         return line_y + pixel_size + line_gap;
     }
 
+    // Shortens `text` from the left (keeping the tail, prefixed with "...")
+    // until it fits `max_width` - used for values like file paths that can
+    // be far longer than the field row they share with a label.
+    std::string elide_left(FontRenderer &font_renderer, const std::string &text, int max_width, int pixel_size)
+    {
+        if (font_renderer.measure_text(text, pixel_size).width <= max_width)
+        {
+            return text;
+        }
+        const std::string ellipsis = "...";
+        for (std::size_t start = 0; start < text.size(); ++start)
+        {
+            const std::string candidate = ellipsis + text.substr(start);
+            if (font_renderer.measure_text(candidate, pixel_size).width <= max_width)
+            {
+                return candidate;
+            }
+        }
+        return ellipsis;
+    }
+
     void draw_text_with_outline(FontRenderer &font_renderer,
                                 const std::string &text,
                                 int x,
@@ -897,6 +925,31 @@ namespace
         return layout_button_row(top_bar_row_rect(layout, 0, 1), static_cast<int>(kNetworkButtons.size()));
     }
 
+    // One row per config field, stacked in the side panel between the info
+    // header and the footer. Row height adapts to whatever room is actually
+    // available: capped for looks on a tall window, but deliberately with no
+    // lower floor - a floor here would do exactly what a fixed height did to
+    // the old editor palette (silently overlap the footer) once 16 rows
+    // don't fit even at the floor, which happens at the enforced minimum
+    // window size.
+    std::vector<SDL_Rect> compute_settings_field_rects(const Layout &layout, int count)
+    {
+        const int gap = 4;
+        const int top = layout.info_rect.y + layout.info_rect.h + 10;
+        const int bottom = layout.footer_rect.y - 10;
+        const int available = bottom - top;
+        const int row_height = std::min(30, std::max(1, (available - (gap * (count - 1))) / count));
+
+        std::vector<SDL_Rect> rects(static_cast<std::size_t>(count));
+        int y = top;
+        for (int i = 0; i < count; ++i)
+        {
+            rects[static_cast<std::size_t>(i)] = SDL_Rect{layout.panel_rect.x, y, layout.panel_rect.w, row_height};
+            y += row_height + gap;
+        }
+        return rects;
+    }
+
     // Board editor needs two action rows in the top bar (piece palette, then
     // Clear/Default/Save/Back); every other mode needs exactly one.
     int top_bar_rows_for(ChessGuiMode mode)
@@ -983,6 +1036,8 @@ namespace
             return layout_button_row(top_bar_row_rect(layout, 0, 1), static_cast<int>(kButtons.size()));
         case ChessGuiMode::board_editor:
             return layout_button_row(top_bar_row_rect(layout, 0, 2), static_cast<int>(kEditorPalette.size()));
+        case ChessGuiMode::settings:
+            return layout_button_row(top_bar_row_rect(layout, 0, 1), static_cast<int>(kSettingsButtons.size()));
         default:
             return {};
         }
@@ -1188,6 +1243,32 @@ namespace
             return network_state_;
         }
 
+        void set_settings_state(const ChessGuiSettingsState &state) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            settings_state_ = state;
+            title_dirty_ = true;
+        }
+
+        ChessGuiSettingsState settings_state() const override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return settings_state_;
+        }
+
+        void set_game_action_state(const ChessGuiGameActionState &state) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            game_action_state_ = state;
+            title_dirty_ = true;
+        }
+
+        ChessGuiGameActionState game_action_state() const override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return game_action_state_;
+        }
+
         void set_local_player_color(playerColor color) override
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -1303,6 +1384,8 @@ namespace
                 ChessGuiBoardEditorState editor_state_copy;
                 ChessGuiDatabaseState database_state_copy;
                 ChessGuiNetworkState network_state_copy;
+                ChessGuiSettingsState settings_state_copy;
+                ChessGuiGameActionState game_action_state_copy;
                 TextInputField active_text_field = TextInputField::none;
                 bool dragging_copy = false;
                 boardCoordinateType drag_from_copy{'A', 1};
@@ -1321,6 +1404,8 @@ namespace
                     editor_state_copy = board_editor_state_;
                     database_state_copy = database_state_;
                     network_state_copy = network_state_;
+                    settings_state_copy = settings_state_;
+                    game_action_state_copy = game_action_state_;
                     active_text_field = active_text_field_;
                     dragging_copy = dragging_;
                     drag_from_copy = drag_from_;
@@ -1348,6 +1433,8 @@ namespace
                                 editor_state_copy,
                                 database_state_copy,
                                 network_state_copy,
+                                settings_state_copy,
+                                game_action_state_copy,
                                 active_text_field,
                                 dragging_copy,
                                 drag_from_copy,
@@ -1381,6 +1468,13 @@ namespace
                 return &network_state_.host;
             case TextInputField::network_password:
                 return &network_state_.password;
+            case TextInputField::settings_value:
+                if (settings_state_.selected_field_index >= 0 &&
+                    static_cast<std::size_t>(settings_state_.selected_field_index) < settings_state_.fields.size())
+                {
+                    return &settings_state_.fields[static_cast<std::size_t>(settings_state_.selected_field_index)].value;
+                }
+                return nullptr;
             case TextInputField::none:
             default:
                 return nullptr;
@@ -1556,7 +1650,8 @@ namespace
                 const int menu_index = menu_index_at(layout, mode_, mouse_x, mouse_y);
                 if (menu_index >= 0)
                 {
-                    bool clickable = (mode_ == ChessGuiMode::main_menu) || (mode_ == ChessGuiMode::board_editor);
+                    bool clickable = (mode_ == ChessGuiMode::main_menu) || (mode_ == ChessGuiMode::board_editor) ||
+                                      (mode_ == ChessGuiMode::settings);
                     if (!clickable && (mode_ == ChessGuiMode::local_game || mode_ == ChessGuiMode::network_game))
                     {
                         clickable = game_button_enabled(mode_, kButtons[static_cast<std::size_t>(menu_index)].action);
@@ -1582,6 +1677,30 @@ namespace
                         active_text_field_ = TextInputField::editor_save_name;
                         return;
                     }
+                }
+                else if (mode_ == ChessGuiMode::settings)
+                {
+                    const auto field_rects = compute_settings_field_rects(layout, static_cast<int>(settings_state_.fields.size()));
+                    for (std::size_t i = 0; i < field_rects.size(); ++i)
+                    {
+                        if (!point_in_rect(mouse_x, mouse_y, field_rects[i]))
+                        {
+                            continue;
+                        }
+                        if (settings_state_.fields[i].is_bool)
+                        {
+                            settings_state_.fields[i].value = (settings_state_.fields[i].value == "yes") ? "no" : "yes";
+                            active_text_field_ = TextInputField::none;
+                            settings_state_.selected_field_index = -1;
+                        }
+                        else
+                        {
+                            settings_state_.selected_field_index = static_cast<int>(i);
+                            active_text_field_ = TextInputField::settings_value;
+                        }
+                        return;
+                    }
+                    return;
                 }
                 else if (mode_ == ChessGuiMode::network_setup)
                 {
@@ -1650,6 +1769,10 @@ namespace
                     else if (mode_ == ChessGuiMode::board_editor)
                     {
                         board_editor_state_.selected_piece = kEditorPalette[static_cast<std::size_t>(released_on)].piece;
+                    }
+                    else if (mode_ == ChessGuiMode::settings)
+                    {
+                        pending_actions_.push_back(ChessGuiAction{kSettingsButtons[static_cast<std::size_t>(released_on)].action, {'A', 1}, {'A', 1}});
                     }
                 }
                 pressed_menu_index_ = -1;
@@ -1784,6 +1907,8 @@ namespace
                              const ChessGuiBoardEditorState &board_editor_state,
                              const ChessGuiDatabaseState &database_state,
                              const ChessGuiNetworkState &network_state,
+                             const ChessGuiSettingsState &settings_state,
+                             const ChessGuiGameActionState &game_action_state,
                              TextInputField active_text_field,
                              bool dragging,
                              boardCoordinateType drag_from,
@@ -1983,6 +2108,25 @@ namespace
                     fill_rect(renderer, rects[i], button_fill);
                     draw_rect(renderer, rects[i], button_outline);
                     draw_text_centered(font_renderer, kNetworkButtons[i].label, rects[i], 18, label_color);
+                }
+            }
+            else if (mode == ChessGuiMode::settings)
+            {
+                const auto rects = primary_top_bar_rects(layout, mode);
+                for (std::size_t i = 0; i < rects.size(); ++i)
+                {
+                    SDL_Color fill = button_fill;
+                    if (static_cast<int>(i) == pressed_menu)
+                    {
+                        fill = button_pressed;
+                    }
+                    else if (static_cast<int>(i) == hovered_menu)
+                    {
+                        fill = button_hover;
+                    }
+                    fill_rect(renderer, rects[i], fill);
+                    draw_rect(renderer, rects[i], button_outline);
+                    draw_text_centered(font_renderer, kSettingsButtons[i].label, rects[i], 18, label_color);
                 }
             }
 
@@ -2264,6 +2408,49 @@ namespace
                     draw_wrapped_text(font_renderer, "Default port comes from config.json; password may be left empty.", footer_x, footer_y, footer_max_width, 14, muted_label);
                 }
             }
+            else if (mode == ChessGuiMode::settings)
+            {
+                font_renderer.draw_text("Settings", layout.info_rect.x + 8, layout.info_rect.y + 42, info_size, label_color);
+                font_renderer.draw_text("Click a value to edit it; yes/no fields toggle on click.", layout.info_rect.x + 8, layout.info_rect.y + 70, 13, muted_label);
+
+                const auto field_rects = compute_settings_field_rects(layout, static_cast<int>(settings_state.fields.size()));
+                for (std::size_t i = 0; i < field_rects.size(); ++i)
+                {
+                    const bool active = active_text_field == TextInputField::settings_value &&
+                                         settings_state.selected_field_index == static_cast<int>(i);
+                    fill_rect(renderer, field_rects[i], active ? button_hover : menu_item_fill);
+                    draw_rect(renderer, field_rects[i], button_outline);
+
+                    const auto &field = settings_state.fields[i];
+                    const int text_size = std::min(13, field_rects[i].h - 8);
+                    const int label_max_width = field_rects[i].w / 2;
+                    const std::string label_text = elide_left(font_renderer, field.label, label_max_width, text_size);
+                    font_renderer.draw_text(label_text, field_rects[i].x + 8, field_rects[i].y + (field_rects[i].h - text_size) / 2, text_size, label_color);
+
+                    // Values (especially file paths) can be far wider than
+                    // the row - elide from the left so the tail (the useful
+                    // part of a path) stays visible instead of overflowing
+                    // into the next row or past the panel edge.
+                    const int label_width = font_renderer.measure_text(label_text, text_size).width;
+                    const int value_max_width = std::max(20, field_rects[i].w - label_width - 24);
+                    const std::string value_text = elide_left(font_renderer, field.value, value_max_width, text_size);
+                    const TextMetrics value_metrics = font_renderer.measure_text(value_text, text_size);
+                    font_renderer.draw_text(value_text,
+                                            field_rects[i].x + field_rects[i].w - value_metrics.width - 10,
+                                            field_rects[i].y + (field_rects[i].h - text_size) / 2,
+                                            text_size,
+                                            label_color);
+                }
+
+                {
+                    const int footer_x = layout.footer_rect.x + 8;
+                    const int footer_max_width = layout.footer_rect.w - 16;
+                    const std::string footer_message = settings_state.status_message.empty()
+                        ? "Save writes to config.json. Back discards unsaved changes."
+                        : settings_state.status_message;
+                    draw_wrapped_text(font_renderer, footer_message, footer_x, layout.footer_rect.y + 10, footer_max_width, 14, muted_label);
+                }
+            }
             else if (mode == ChessGuiMode::main_menu)
             {
                 // The full game panel (turn indicator, quick-action buttons,
@@ -2352,6 +2539,17 @@ namespace
                     fill_rect(renderer, sep, panel_outline);
                 }
 
+                if (!game_action_state.message.empty())
+                {
+                    // Legal Moves / ML Move / Save used to only print to the
+                    // console, which the GUI window has no view of - this is
+                    // the same info, shown in the space below the separator
+                    // that was otherwise unused during a game.
+                    draw_wrapped_text(font_renderer, game_action_state.message,
+                                      layout.info_rect.x + 10, layout.info_rect.y + layout.info_rect.h + 12,
+                                      layout.info_rect.w - 20, 14, muted_label);
+                }
+
                 const std::string mode_line = (mode == ChessGuiMode::network_game)
                     ? "Network game active"
                     : "Drag pieces or use the buttons above";
@@ -2369,6 +2567,8 @@ namespace
         ChessGuiBoardEditorState board_editor_state_{};
         ChessGuiDatabaseState database_state_{};
         ChessGuiNetworkState network_state_{};
+        ChessGuiSettingsState settings_state_{};
+        ChessGuiGameActionState game_action_state_{};
         playerColor local_player_color_ = playerColor::none;
         std::deque<ChessGuiAction> pending_actions_;
         bool initialized_ = false;
