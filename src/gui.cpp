@@ -879,43 +879,71 @@ namespace
         return layout_button_row(top_bar_row_rect(layout, 0, 1), static_cast<int>(kDatabaseButtons.size()));
     }
 
-    std::array<SDL_Rect, 2> compute_network_role_rects(const Layout &layout)
+    struct NetworkFormLayout
     {
-        std::array<SDL_Rect, 2> rects{};
+        SDL_Rect role_rects[2]{};
+        int username_label_y = 0;
+        SDL_Rect username_rect{};
+        int host_label_y = 0;
+        SDL_Rect host_rect{}; // only meaningful in join mode
+        int color_label_y = 0;
+        SDL_Rect color_rects[2]{}; // only meaningful in host mode
+        int password_label_y = 0;
+        SDL_Rect password_rect{};
+        int status_y = 0;
+    };
+
+    // Every field flows top-down from the title, and Host vs. Join mode
+    // swaps in the color selector or the Host field at the same point in
+    // the sequence - previously each field had its own fixed offset from
+    // info_rect.y, which put the "Network game" title directly under the
+    // role buttons (both computed independently as "+42" and "+44") and
+    // left a large dead gap in Host mode where the unused Host field's
+    // reserved space still was.
+    NetworkFormLayout compute_network_form_layout(const Layout &layout, ChessGuiNetworkRole role)
+    {
+        NetworkFormLayout result;
         const int gap = 10;
+        const int section_gap = 14;
         const int width = (layout.panel_rect.w - gap) / 2;
-        const int height = 36;
-        const int y = layout.info_rect.y + 44;
-        rects[0] = SDL_Rect{layout.panel_rect.x, y, width, height};
-        rects[1] = SDL_Rect{layout.panel_rect.x + width + gap, y, width, height};
-        return rects;
-    }
+        const int toggle_height = 36;
+        const int row_height = 38;
+        const int label_gap = 20;
 
-    std::array<SDL_Rect, 2> compute_network_color_rects(const Layout &layout)
-    {
-        std::array<SDL_Rect, 2> rects{};
-        const int gap = 10;
-        const int width = (layout.panel_rect.w - gap) / 2;
-        const int height = 36;
-        const int y = layout.info_rect.y + 220;
-        rects[0] = SDL_Rect{layout.panel_rect.x, y, width, height};
-        rects[1] = SDL_Rect{layout.panel_rect.x + width + gap, y, width, height};
-        return rects;
-    }
+        int y = layout.info_rect.y + 76; // below the title, with room for its full glyph height
 
-    SDL_Rect compute_network_username_rect(const Layout &layout)
-    {
-        return SDL_Rect{layout.panel_rect.x, layout.info_rect.y + 94, layout.panel_rect.w, 38};
-    }
+        result.role_rects[0] = SDL_Rect{layout.panel_rect.x, y, width, toggle_height};
+        result.role_rects[1] = SDL_Rect{layout.panel_rect.x + width + gap, y, width, toggle_height};
+        y += toggle_height + section_gap;
 
-    SDL_Rect compute_network_host_rect(const Layout &layout)
-    {
-        return SDL_Rect{layout.panel_rect.x, layout.info_rect.y + 148, layout.panel_rect.w, 38};
-    }
+        result.username_label_y = y;
+        y += label_gap;
+        result.username_rect = SDL_Rect{layout.panel_rect.x, y, layout.panel_rect.w, row_height};
+        y += row_height + section_gap;
 
-    SDL_Rect compute_network_password_rect(const Layout &layout)
-    {
-        return SDL_Rect{layout.panel_rect.x, layout.info_rect.y + 274, layout.panel_rect.w, 38};
+        if (role == ChessGuiNetworkRole::join)
+        {
+            result.host_label_y = y;
+            y += label_gap;
+            result.host_rect = SDL_Rect{layout.panel_rect.x, y, layout.panel_rect.w, row_height};
+            y += row_height + section_gap;
+        }
+        else
+        {
+            result.color_label_y = y;
+            y += label_gap;
+            result.color_rects[0] = SDL_Rect{layout.panel_rect.x, y, width, toggle_height};
+            result.color_rects[1] = SDL_Rect{layout.panel_rect.x + width + gap, y, width, toggle_height};
+            y += toggle_height + section_gap;
+        }
+
+        result.password_label_y = y;
+        y += label_gap;
+        result.password_rect = SDL_Rect{layout.panel_rect.x, y, layout.panel_rect.w, row_height};
+        y += row_height + section_gap;
+
+        result.status_y = y;
+        return result;
     }
 
     // Start/Back live in the top bar; role, color, and the text fields below
@@ -1704,18 +1732,19 @@ namespace
                 }
                 else if (mode_ == ChessGuiMode::network_setup)
                 {
-                    if (point_in_rect(mouse_x, mouse_y, compute_network_username_rect(layout)))
+                    const NetworkFormLayout form = compute_network_form_layout(layout, network_state_.role);
+                    if (point_in_rect(mouse_x, mouse_y, form.username_rect))
                     {
                         active_text_field_ = TextInputField::network_username;
                         return;
                     }
                     if (network_state_.role == ChessGuiNetworkRole::join &&
-                        point_in_rect(mouse_x, mouse_y, compute_network_host_rect(layout)))
+                        point_in_rect(mouse_x, mouse_y, form.host_rect))
                     {
                         active_text_field_ = TextInputField::network_host;
                         return;
                     }
-                    if (point_in_rect(mouse_x, mouse_y, compute_network_password_rect(layout)))
+                    if (point_in_rect(mouse_x, mouse_y, form.password_rect))
                     {
                         active_text_field_ = TextInputField::network_password;
                         return;
@@ -1841,14 +1870,14 @@ namespace
 
             if (mode_ == ChessGuiMode::network_setup)
             {
-                const auto role_rects = compute_network_role_rects(layout);
-                if (point_in_rect(mouse_x, mouse_y, role_rects[0]))
+                const NetworkFormLayout form = compute_network_form_layout(layout, network_state_.role);
+                if (point_in_rect(mouse_x, mouse_y, form.role_rects[0]))
                 {
                     network_state_.role = ChessGuiNetworkRole::host;
                     active_text_field_ = TextInputField::network_username;
                     return;
                 }
-                if (point_in_rect(mouse_x, mouse_y, role_rects[1]))
+                if (point_in_rect(mouse_x, mouse_y, form.role_rects[1]))
                 {
                     network_state_.role = ChessGuiNetworkRole::join;
                     active_text_field_ = TextInputField::network_username;
@@ -1857,13 +1886,12 @@ namespace
 
                 if (network_state_.role == ChessGuiNetworkRole::host)
                 {
-                    const auto color_rects = compute_network_color_rects(layout);
-                    if (point_in_rect(mouse_x, mouse_y, color_rects[0]))
+                    if (point_in_rect(mouse_x, mouse_y, form.color_rects[0]))
                     {
                         network_state_.host_plays_white = true;
                         return;
                     }
-                    if (point_in_rect(mouse_x, mouse_y, color_rects[1]))
+                    if (point_in_rect(mouse_x, mouse_y, form.color_rects[1]))
                     {
                         network_state_.host_plays_white = false;
                         return;
@@ -2347,56 +2375,49 @@ namespace
             {
                 font_renderer.draw_text("Network game", layout.info_rect.x + 8, layout.info_rect.y + 42, info_size, label_color);
 
-                const auto role_rects = compute_network_role_rects(layout);
-                for (std::size_t i = 0; i < role_rects.size(); ++i)
+                const NetworkFormLayout form = compute_network_form_layout(layout, network_state.role);
+
+                for (std::size_t i = 0; i < 2; ++i)
                 {
                     const bool selected = (static_cast<int>(i) == ((network_state.role == ChessGuiNetworkRole::host) ? 0 : 1));
-                    fill_rect(renderer, role_rects[i], selected ? button_hover : menu_item_fill);
-                    draw_rect(renderer, role_rects[i], button_outline);
-                    draw_text_centered(font_renderer, kNetworkRoleLabels[i], role_rects[i], 18, label_color);
+                    fill_rect(renderer, form.role_rects[i], selected ? button_hover : menu_item_fill);
+                    draw_rect(renderer, form.role_rects[i], button_outline);
+                    draw_text_centered(font_renderer, kNetworkRoleLabels[i], form.role_rects[i], 18, label_color);
                 }
 
-                font_renderer.draw_text("Username", layout.panel_rect.x, layout.info_rect.y + 78, 15, muted_label);
-                SDL_Rect username_rect = compute_network_username_rect(layout);
-                fill_rect(renderer, username_rect, active_text_field == TextInputField::network_username ? button_hover : menu_item_fill);
-                draw_rect(renderer, username_rect, button_outline);
-                font_renderer.draw_text(network_state.username.empty() ? "player" : network_state.username, username_rect.x + 8, username_rect.y + 8, 17, label_color);
+                font_renderer.draw_text("Username", layout.panel_rect.x, form.username_label_y, 15, muted_label);
+                fill_rect(renderer, form.username_rect, active_text_field == TextInputField::network_username ? button_hover : menu_item_fill);
+                draw_rect(renderer, form.username_rect, button_outline);
+                font_renderer.draw_text(network_state.username.empty() ? "player" : network_state.username, form.username_rect.x + 8, form.username_rect.y + 8, 17, label_color);
 
                 if (network_state.role == ChessGuiNetworkRole::join)
                 {
-                    font_renderer.draw_text("Host", layout.panel_rect.x, layout.info_rect.y + 132, 15, muted_label);
-                    SDL_Rect host_rect = compute_network_host_rect(layout);
-                    fill_rect(renderer, host_rect, active_text_field == TextInputField::network_host ? button_hover : menu_item_fill);
-                    draw_rect(renderer, host_rect, button_outline);
-                    font_renderer.draw_text(network_state.host.empty() ? "127.0.0.1" : network_state.host, host_rect.x + 8, host_rect.y + 8, 17, label_color);
+                    font_renderer.draw_text("Host", layout.panel_rect.x, form.host_label_y, 15, muted_label);
+                    fill_rect(renderer, form.host_rect, active_text_field == TextInputField::network_host ? button_hover : menu_item_fill);
+                    draw_rect(renderer, form.host_rect, button_outline);
+                    font_renderer.draw_text(network_state.host.empty() ? "127.0.0.1" : network_state.host, form.host_rect.x + 8, form.host_rect.y + 8, 17, label_color);
                 }
                 else
                 {
-                    font_renderer.draw_text("Host color", layout.panel_rect.x, layout.info_rect.y + 204, 15, muted_label);
-                    const auto color_rects = compute_network_color_rects(layout);
-                    for (std::size_t i = 0; i < color_rects.size(); ++i)
+                    font_renderer.draw_text("Host color", layout.panel_rect.x, form.color_label_y, 15, muted_label);
+                    for (std::size_t i = 0; i < 2; ++i)
                     {
                         const bool selected = (static_cast<int>(i) == (network_state.host_plays_white ? 0 : 1));
-                        fill_rect(renderer, color_rects[i], selected ? button_hover : menu_item_fill);
-                        draw_rect(renderer, color_rects[i], button_outline);
-                        draw_text_centered(font_renderer, kNetworkColorLabels[i], color_rects[i], 18, label_color);
+                        fill_rect(renderer, form.color_rects[i], selected ? button_hover : menu_item_fill);
+                        draw_rect(renderer, form.color_rects[i], button_outline);
+                        draw_text_centered(font_renderer, kNetworkColorLabels[i], form.color_rects[i], 18, label_color);
                     }
                 }
 
-                font_renderer.draw_text("Password", layout.panel_rect.x, layout.info_rect.y + 258, 15, muted_label);
-                SDL_Rect password_rect = compute_network_password_rect(layout);
-                fill_rect(renderer, password_rect, active_text_field == TextInputField::network_password ? button_hover : menu_item_fill);
-                draw_rect(renderer, password_rect, button_outline);
-                font_renderer.draw_text(masked_password(network_state.password), password_rect.x + 8, password_rect.y + 8, 17, label_color);
+                font_renderer.draw_text("Password", layout.panel_rect.x, form.password_label_y, 15, muted_label);
+                fill_rect(renderer, form.password_rect, active_text_field == TextInputField::network_password ? button_hover : menu_item_fill);
+                draw_rect(renderer, form.password_rect, button_outline);
+                font_renderer.draw_text(masked_password(network_state.password), form.password_rect.x + 8, form.password_rect.y + 8, 17, label_color);
 
                 if (!network_state.status_message.empty())
                 {
-                    // Anchored below the password field (top-down) rather
-                    // than a fixed offset from the panel bottom - the latter
-                    // used to land inside the button row whenever the panel
-                    // was shorter than whoever wrote "-92" was assuming.
                     draw_wrapped_text(font_renderer, network_state.status_message,
-                                      layout.panel_rect.x, password_rect.y + password_rect.h + 16,
+                                      layout.panel_rect.x, form.status_y,
                                       layout.panel_rect.w - 8, 14, muted_label);
                 }
 

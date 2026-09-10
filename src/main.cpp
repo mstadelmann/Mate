@@ -463,7 +463,10 @@ namespace
 
         ChessGuiNetworkState state;
         state.username = default_gui_username();
-        state.status_message = "Choose Host or Join, then press Start.";
+        // No initial status_message: the footer already says "Choose Host or
+        // Join..." - this field is reserved for actual dynamic feedback
+        // (connecting/waiting/error), so it starts empty rather than
+        // repeating the same static instruction back at the user.
         set_chess_gui_mode(gui, ChessGuiMode::network_setup);
         set_chess_gui_network_state(gui, state);
         sync_chess_gui(gui, game);
