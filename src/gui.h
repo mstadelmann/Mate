@@ -48,7 +48,8 @@ enum class ChessGuiActionType
     network_back,
     open_settings,
     settings_save,
-    settings_back
+    settings_back,
+    send_chat
 };
 
 struct ChessGuiDatabaseEntry
@@ -117,6 +118,16 @@ struct ChessGuiGameActionState
     std::string message;
 };
 
+// Network-game chat: `messages` holds fully-formatted lines ("You: hi" /
+// "Marc: hi") in the order they arrived, appended by whichever side
+// (CLI or GUI) sent or received them; `pending_input` is the text currently
+// being typed into the GUI's chat box.
+struct ChessGuiChatState
+{
+    std::vector<std::string> messages;
+    std::string pending_input;
+};
+
 struct ChessGuiAction
 {
     ChessGuiActionType type = ChessGuiActionType::none;
@@ -141,6 +152,8 @@ public:
     virtual ChessGuiSettingsState settings_state() const = 0;
     virtual void set_game_action_state(const ChessGuiGameActionState &state) = 0;
     virtual ChessGuiGameActionState game_action_state() const = 0;
+    virtual void set_chat_state(const ChessGuiChatState &state) = 0;
+    virtual ChessGuiChatState chat_state() const = 0;
     // The color the local player actually controls in the active network
     // game (resolved after the host/join handshake); playerColor::none
     // outside of network play.
@@ -243,6 +256,19 @@ inline void set_chess_gui_game_action_state(ChessGui *gui, const ChessGuiGameAct
 inline ChessGuiGameActionState get_chess_gui_game_action_state(ChessGui *gui)
 {
     return (gui != nullptr && gui->is_open()) ? gui->game_action_state() : ChessGuiGameActionState{};
+}
+
+inline void set_chess_gui_chat_state(ChessGui *gui, const ChessGuiChatState &state)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_chat_state(state);
+    }
+}
+
+inline ChessGuiChatState get_chess_gui_chat_state(ChessGui *gui)
+{
+    return (gui != nullptr && gui->is_open()) ? gui->chat_state() : ChessGuiChatState{};
 }
 
 #endif /* GUI_H */

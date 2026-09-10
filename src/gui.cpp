@@ -44,6 +44,8 @@ namespace
         bool has_last_move = false;
         boardCoordinateType last_move_start{'A', 1};
         boardCoordinateType last_move_dest{'A', 1};
+        std::string white_player_name;
+        std::string black_player_name;
     };
 
     struct ButtonSpec
@@ -65,7 +67,8 @@ namespace
         network_username,
         network_host,
         network_password,
-        settings_value
+        settings_value,
+        chat_message
     };
 
     struct MenuSpec
@@ -978,6 +981,16 @@ namespace
         return rects;
     }
 
+    // Anchored above the footer (fixed height, independent of how tall the
+    // chat history or the game-action message above it happen to be) so
+    // both rendering and click hit-testing can compute it identically
+    // without needing to know how much text was drawn above it this frame.
+    SDL_Rect compute_chat_input_rect(const Layout &layout)
+    {
+        const int height = 30;
+        return SDL_Rect{layout.info_rect.x + 8, layout.footer_rect.y - height - 10, layout.info_rect.w - 16, height};
+    }
+
     // Board editor needs two action rows in the top bar (piece palette, then
     // Clear/Default/Save/Back); every other mode needs exactly one.
     int top_bar_rows_for(ChessGuiMode mode)
@@ -1151,8 +1164,8 @@ namespace
     {
     public:
         SdlChessGui()
-            : snapshot_{make_empty_board()}
         {
+            snapshot_.board = make_empty_board();
             worker_ = std::thread(&SdlChessGui::thread_main, this);
         }
 
@@ -1182,7 +1195,7 @@ namespace
 
         void sync(const chess &game) override
         {
-            GuiSnapshot next{make_empty_board()};
+            GuiSnapshot next;
             next.board = game.board();
             next.current_player = game.current_player_color();
             next.white_checked = game.is_checked(playerColor::white);
@@ -1193,6 +1206,8 @@ namespace
             next.rule_draw = game.is_draw();
             next.move_count = game.move_count();
             next.has_last_move = game.has_played_moves();
+            next.white_player_name = game.player_name(playerColor::white);
+            next.black_player_name = game.player_name(playerColor::black);
 
             if (next.has_last_move)
             {
@@ -1295,6 +1310,19 @@ namespace
         {
             std::lock_guard<std::mutex> lock(mutex_);
             return game_action_state_;
+        }
+
+        void set_chat_state(const ChessGuiChatState &state) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            chat_state_ = state;
+            title_dirty_ = true;
+        }
+
+        ChessGuiChatState chat_state() const override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return chat_state_;
         }
 
         void set_local_player_color(playerColor color) override
@@ -1407,13 +1435,15 @@ namespace
                     }
                 }
 
-                GuiSnapshot snapshot_copy{make_empty_board()};
+                GuiSnapshot snapshot_copy;
                 ChessGuiMode mode_copy = ChessGuiMode::main_menu;
                 ChessGuiBoardEditorState editor_state_copy;
                 ChessGuiDatabaseState database_state_copy;
                 ChessGuiNetworkState network_state_copy;
                 ChessGuiSettingsState settings_state_copy;
                 ChessGuiGameActionState game_action_state_copy;
+                ChessGuiChatState chat_state_copy;
+                playerColor local_player_color_copy = playerColor::none;
                 TextInputField active_text_field = TextInputField::none;
                 bool dragging_copy = false;
                 boardCoordinateType drag_from_copy{'A', 1};
@@ -1434,6 +1464,8 @@ namespace
                     network_state_copy = network_state_;
                     settings_state_copy = settings_state_;
                     game_action_state_copy = game_action_state_;
+                    chat_state_copy = chat_state_;
+                    local_player_color_copy = local_player_color_;
                     active_text_field = active_text_field_;
                     dragging_copy = dragging_;
                     drag_from_copy = drag_from_;
@@ -1463,6 +1495,8 @@ namespace
                                 network_state_copy,
                                 settings_state_copy,
                                 game_action_state_copy,
+                                chat_state_copy,
+                                local_player_color_copy,
                                 active_text_field,
                                 dragging_copy,
                                 drag_from_copy,
@@ -1503,6 +1537,8 @@ namespace
                     return &settings_state_.fields[static_cast<std::size_t>(settings_state_.selected_field_index)].value;
                 }
                 return nullptr;
+            case TextInputField::chat_message:
+                return &chat_state_.pending_input;
             case TextInputField::none:
             default:
                 return nullptr;
@@ -1602,6 +1638,18 @@ namespace
                 else if (event.key.keysym.sym == SDLK_TAB)
                 {
                     cycle_text_field_locked();
+                }
+                else if (active_text_field_ == TextInputField::chat_message &&
+                         (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_KP_ENTER))
+                {
+                    // The actual send (and clearing pending_input) happens on
+                    // the network thread once it picks up this action, so it
+                    // can read the exact text that was typed rather than
+                    // racing a GUI-side clear against it.
+                    if (!chat_state_.pending_input.empty())
+                    {
+                        pending_actions_.push_back(ChessGuiAction{ChessGuiActionType::send_chat, {'A', 1}, {'A', 1}});
+                    }
                 }
                 else if (mode_ == ChessGuiMode::database_browser)
                 {
@@ -1752,6 +1800,12 @@ namespace
                 }
                 else if (mode_ != ChessGuiMode::local_game && mode_ != ChessGuiMode::network_game)
                 {
+                    return;
+                }
+
+                if (mode_ == ChessGuiMode::network_game && point_in_rect(mouse_x, mouse_y, compute_chat_input_rect(layout)))
+                {
+                    active_text_field_ = TextInputField::chat_message;
                     return;
                 }
 
@@ -1937,6 +1991,8 @@ namespace
                              const ChessGuiNetworkState &network_state,
                              const ChessGuiSettingsState &settings_state,
                              const ChessGuiGameActionState &game_action_state,
+                             const ChessGuiChatState &chat_state,
+                             playerColor local_player_color,
                              TextInputField active_text_field,
                              bool dragging,
                              boardCoordinateType drag_from,
@@ -2512,6 +2568,24 @@ namespace
                 {
                     turn_line = "Black to move";
                 }
+                if (mode == ChessGuiMode::network_game && local_player_color != playerColor::none &&
+                    snapshot.current_player != playerColor::none)
+                {
+                    if (snapshot.current_player == local_player_color)
+                    {
+                        turn_line += " (You)";
+                    }
+                    else
+                    {
+                        const std::string &opponent_name = (snapshot.current_player == playerColor::white)
+                            ? snapshot.white_player_name
+                            : snapshot.black_player_name;
+                        if (!opponent_name.empty())
+                        {
+                            turn_line += " (" + opponent_name + ")";
+                        }
+                    }
+                }
                 if (snapshot.current_player != playerColor::none)
                 {
                     const SDL_Color indicator_color = (snapshot.current_player == playerColor::white)
@@ -2560,15 +2634,47 @@ namespace
                     fill_rect(renderer, sep, panel_outline);
                 }
 
+                int panel_content_y = layout.info_rect.y + layout.info_rect.h + 12;
                 if (!game_action_state.message.empty())
                 {
                     // Legal Moves / ML Move / Save used to only print to the
                     // console, which the GUI window has no view of - this is
                     // the same info, shown in the space below the separator
                     // that was otherwise unused during a game.
-                    draw_wrapped_text(font_renderer, game_action_state.message,
-                                      layout.info_rect.x + 10, layout.info_rect.y + layout.info_rect.h + 12,
-                                      layout.info_rect.w - 20, 14, muted_label);
+                    panel_content_y = draw_wrapped_text(font_renderer, game_action_state.message,
+                                                        layout.info_rect.x + 10, panel_content_y,
+                                                        layout.info_rect.w - 20, 14, muted_label);
+                }
+
+                if (mode == ChessGuiMode::network_game)
+                {
+                    // The input box is anchored above the footer (fixed
+                    // height, see compute_chat_input_rect) so it never moves
+                    // regardless of how much history or game_action_state
+                    // text is shown above it; the history area fills
+                    // whatever is left between the two.
+                    const SDL_Rect chat_input_rect = compute_chat_input_rect(layout);
+
+                    font_renderer.draw_text("Chat", layout.info_rect.x + 10, panel_content_y + 6, 13, muted_label);
+                    int history_y = panel_content_y + 24;
+                    const int history_bottom = chat_input_rect.y - 8;
+
+                    constexpr std::size_t max_shown = 8;
+                    const std::size_t total = chat_state.messages.size();
+                    const std::size_t start = (total > max_shown) ? (total - max_shown) : 0;
+                    for (std::size_t i = start; i < total && history_y < history_bottom; ++i)
+                    {
+                        history_y = draw_wrapped_text(font_renderer, chat_state.messages[i],
+                                                      layout.info_rect.x + 10, history_y,
+                                                      layout.info_rect.w - 20, 13, muted_label, 2);
+                    }
+
+                    fill_rect(renderer, chat_input_rect, active_text_field == TextInputField::chat_message ? button_hover : menu_item_fill);
+                    draw_rect(renderer, chat_input_rect, button_outline);
+                    const bool show_placeholder = chat_state.pending_input.empty();
+                    const std::string chat_display = show_placeholder ? "Type a message, Enter to send..." : chat_state.pending_input;
+                    const std::string chat_shown = elide_left(font_renderer, chat_display, chat_input_rect.w - 16, 14);
+                    font_renderer.draw_text(chat_shown, chat_input_rect.x + 8, chat_input_rect.y + 7, 14, show_placeholder ? muted_label : label_color);
                 }
 
                 const std::string mode_line = (mode == ChessGuiMode::network_game)
@@ -2590,6 +2696,7 @@ namespace
         ChessGuiNetworkState network_state_{};
         ChessGuiSettingsState settings_state_{};
         ChessGuiGameActionState game_action_state_{};
+        ChessGuiChatState chat_state_{};
         playerColor local_player_color_ = playerColor::none;
         std::deque<ChessGuiAction> pending_actions_;
         bool initialized_ = false;

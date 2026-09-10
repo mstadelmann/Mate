@@ -305,7 +305,7 @@ std::string chess::current_player_string() const
     }
 }
 
-void chess::printCurrentGame()
+void chess::printCurrentGame(playerColor local_color)
 {
     std::cout << "\n     A   B   C   D   E   F   G   H  \n";
 
@@ -328,7 +328,11 @@ void chess::printCurrentGame()
         if (rank == 7)
         {
             std::string name_suffix;
-            if (current_player == playerColor::white && !white_player_name.empty())
+            if (local_color != playerColor::none && current_player == local_color)
+            {
+                name_suffix = " (You)";
+            }
+            else if (current_player == playerColor::white && !white_player_name.empty())
             {
                 name_suffix = " (" + white_player_name + ")";
             }

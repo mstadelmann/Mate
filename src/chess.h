@@ -161,9 +161,17 @@ public:
     void set_current_player(playerColor color);
     void clear_board();
     void load_starting_position();
-    void printCurrentGame();
+    void printCurrentGame(playerColor local_color = playerColor::none);
     string current_player_string() const;
     string gameName() const { return game_name; }
+    string player_name(playerColor color) const
+    {
+        if (color == playerColor::white)
+            return white_player_name;
+        if (color == playerColor::black)
+            return black_player_name;
+        return "";
+    }
     void place_piece(boardPositionType);
     void place_piece(boardCoordinateType, pieceType);
     boardPositionType query_position(boardCoordinateType);
