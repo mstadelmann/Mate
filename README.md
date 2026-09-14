@@ -130,8 +130,8 @@ Notes:
 
 - CMake must be able to find `onnxruntimeConfig.cmake` (see installation notes above)
 - if the bundled model exists at `torch_model/trained_models/simpleNet_torchscript.onnx`, Mate auto-detects it
-- otherwise set `ml_model_path` in `~/.mate/config.json`
-- the current ML move integration only supports the black side
+- otherwise set `ml_model_path` in `~/.mate/config.json` to a model exported from the current pipeline
+- ML moves work for both colors: the board is always encoded from the perspective of the side to move
 
 Model and training notes live in [torch_model/torch_model.md](torch_model/torch_model.md).
 
