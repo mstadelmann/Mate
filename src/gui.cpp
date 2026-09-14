@@ -1051,7 +1051,11 @@ namespace
             layout.panel_rect.w,
             info_height};
 
-        const int footer_height = 54;
+        // Generous on purpose: a couple of footer hints are two full
+        // sentences, and without exact glyph metrics to hand it's safer to
+        // budget for both wrapping to 2 lines each (4 total) than to tune
+        // text length against a tight guess and get bitten again.
+        const int footer_height = 90;
         layout.footer_rect = SDL_Rect{
             layout.panel_rect.x,
             layout.panel_rect.y + layout.panel_rect.h - footer_height,
@@ -2481,8 +2485,8 @@ namespace
                     const int footer_x = layout.footer_rect.x + 8;
                     const int footer_max_width = layout.footer_rect.w - 16;
                     int footer_y = layout.footer_rect.y + 10;
-                    footer_y = draw_wrapped_text(font_renderer, "Choose Host or Join, fill the fields, then press Start.", footer_x, footer_y, footer_max_width, 14, muted_label);
-                    draw_wrapped_text(font_renderer, "Default port comes from config.json; password may be left empty.", footer_x, footer_y, footer_max_width, 14, muted_label);
+                    footer_y = draw_wrapped_text(font_renderer, "Fill the fields, then press Start.", footer_x, footer_y, footer_max_width, 14, muted_label);
+                    draw_wrapped_text(font_renderer, "Port is from config.json; password is optional.", footer_x, footer_y, footer_max_width, 14, muted_label);
                 }
             }
             else if (mode == ChessGuiMode::settings)
