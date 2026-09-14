@@ -1,0 +1,7 @@
+fdq[full]==0.1.23
+
+# fdq's ONNX export flow (mode.dump_model) doesn't pull these in itself.
+# `onnx` is needed for the default (non-dynamo) exporter; `onnxscript` only
+# if you instead choose the dynamo exporter when prompted.
+onnx
+onnxscript

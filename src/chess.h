@@ -213,6 +213,14 @@ public:
     void swapPlayers() { std::swap(current_player, other_player); }
     const boardType &board() const { return chessboard; }
     playerColor current_player_color() const { return current_player; }
+    bool can_castle_kingside(playerColor color) const
+    {
+        return color == playerColor::white ? wCanCastleKs : (color == playerColor::black ? bCanCastleKs : false);
+    }
+    bool can_castle_queenside(playerColor color) const
+    {
+        return color == playerColor::white ? wCanCastleQs : (color == playerColor::black ? bCanCastleQs : false);
+    }
     bool is_checked(playerColor color) const
     {
         if (color == playerColor::white)

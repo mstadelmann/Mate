@@ -9,23 +9,20 @@ from torch.utils.data import DataLoader, Dataset, random_split
 class ChessDataset(Dataset):
     """PyTorch dataset wrapping precomputed chess tensors from a pickle file.
 
-    The pickle file is expected to contain two numpy arrays with the keys
-    "in_array" and "out_array".
+    The pickle file is expected to contain three numpy arrays: "in_array"
+    (N, 16, 8, 8) canonicalized board positions, and "from_array" / "to_array"
+    (N,) integer square labels (0-63) for the move actually played from each
+    position.
     """
 
-    def __init__(self, pickle_path: str, flatten_input: bool) -> None:
+    def __init__(self, pickle_path: str) -> None:
         with open(pickle_path, "rb") as fn:
             # trunk-ignore(bandit/B301)
             chess_tensor = pickle.load(fn)
 
         self.board_in_array = chess_tensor["in_array"]
-        if flatten_input:
-            nb_samples = chess_tensor["in_array"].shape[0]
-            self.board_out_array = np.reshape(
-                chess_tensor["out_array"], (nb_samples, 64)
-            )
-        else:
-            self.board_out_array = chess_tensor["out_array"]
+        self.from_array = chess_tensor["from_array"]
+        self.to_array = chess_tensor["to_array"]
 
     def __len__(self) -> int:
         return self.board_in_array.shape[0]
@@ -33,7 +30,8 @@ class ChessDataset(Dataset):
     def __getitem__(self, i: int) -> Dict[str, np.ndarray]:
         return {
             "inputs": self.board_in_array[i, ...].astype(np.float32),
-            "targets": self.board_out_array[i, ...].astype(np.float32),
+            "from_label": self.from_array[i].astype(np.int64),
+            "to_label": self.to_array[i].astype(np.int64),
         }
 
 
@@ -44,14 +42,10 @@ def create_datasets(experiment, args) -> Dict[str, Any]:
     framework but is not used directly inside this function.
     """
 
-    # ``args`` can be a config object or a mapping; prefer attribute access
-    # and fall back to a sensible default when missing.
-    flatten_input = getattr(args, "flatten", False)
-
     base_path = os.path.expanduser(args.base_path)
 
-    train_set_all = ChessDataset(os.path.join(base_path, args.train_set), flatten_input)
-    test_set = ChessDataset(os.path.join(base_path, args.test_set), flatten_input)
+    train_set_all = ChessDataset(os.path.join(base_path, args.train_set))
+    test_set = ChessDataset(os.path.join(base_path, args.test_set))
 
     n_val = int(len(train_set_all) * args.val_ratio)
     n_train = len(train_set_all) - n_val
