@@ -95,7 +95,7 @@ Arch Linux:
 sudo pacman -S --needed onnxruntime-cpu
 ```
 
-This installs its CMake package files under the standard system prefix, so `CMAKE_PREFIX_PATH` can be omitted in the build command below.
+This installs its CMake package files under `/usr/lib/cmake/onnxruntime/`, which is already on CMake's default search path - omit `CMAKE_PREFIX_PATH` entirely in the build command below (passing it is harmless, but unnecessary).
 
 Ubuntu/Debian (no apt package available):
 
@@ -106,6 +106,17 @@ Ubuntu/Debian (no apt package available):
 Recent releases include the `lib/cmake/onnxruntime/onnxruntimeConfig.cmake` file CMake needs to find it via `find_package`; if that file isn't present in the archive you downloaded, build onnxruntime from source and `cmake --install` it instead, which always produces one.
 
 ### Building with ML support
+
+Arch (package installed to the standard prefix, so no `CMAKE_PREFIX_PATH` needed):
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMATE_ENABLE_ONNX=ON
+cmake --build build --parallel
+```
+
+Ubuntu/Debian, or anywhere else ONNX Runtime was extracted to a non-standard location:
 
 ```bash
 cmake -S . -B build \
