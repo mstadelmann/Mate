@@ -85,7 +85,27 @@ The tests drive the rules engine directly - checkmate/stalemate/draw detection, 
 
 The default build does not require ONNX Runtime.
 
-To enable ML moves:
+### Installing ONNX Runtime
+
+No dedicated GPU needed - the CPU build is fine here; the bundled model is small enough that inference speed isn't a concern either way.
+
+Arch Linux:
+
+```bash
+sudo pacman -S --needed onnxruntime-cpu
+```
+
+This installs its CMake package files under the standard system prefix, so `CMAKE_PREFIX_PATH` can be omitted in the build command below.
+
+Ubuntu/Debian (no apt package available):
+
+1. Grab the current `onnxruntime-linux-x64-<version>.tgz` asset from the [ONNX Runtime releases page](https://github.com/microsoft/onnxruntime/releases).
+2. Extract it, e.g. `tar xf onnxruntime-linux-x64-<version>.tgz`.
+3. Point `CMAKE_PREFIX_PATH` at the extracted folder in the build command below.
+
+Recent releases include the `lib/cmake/onnxruntime/onnxruntimeConfig.cmake` file CMake needs to find it via `find_package`; if that file isn't present in the archive you downloaded, build onnxruntime from source and `cmake --install` it instead, which always produces one.
+
+### Building with ML support
 
 ```bash
 cmake -S . -B build \
@@ -97,7 +117,7 @@ cmake --build build --parallel
 
 Notes:
 
-- CMake must be able to find `onnxruntimeConfig.cmake`
+- CMake must be able to find `onnxruntimeConfig.cmake` (see installation notes above)
 - if the bundled model exists at `torch_model/trained_models/simpleNet_torchscript.onnx`, Mate auto-detects it
 - otherwise set `ml_model_path` in `~/.mate/config.json`
 - the current ML move integration only supports the black side
