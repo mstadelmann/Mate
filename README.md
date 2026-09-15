@@ -133,7 +133,7 @@ Notes:
 - otherwise set `ml_model_path` in `~/.mate/config.json` to a model exported from the current pipeline
 - ML moves work for both colors: the board is always encoded from the perspective of the side to move
 
-Model and training notes live in [torch_model/torch_model.md](torch_model/torch_model.md).
+Model and training notes live in [torch_model/torch_model.md](torch_model/torch_model.md) (supervised learning on real games) and [torch_model/rl_training.md](torch_model/rl_training.md) (reinforcement learning via self-play against Stockfish, no dataset needed) - either produces a model Mate can use the same way.
 
 ## Main Menu
 

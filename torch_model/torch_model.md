@@ -10,19 +10,24 @@ The model predicts a move as two independent square classifications - a
 delta mask, which lets a principled ranked list of move candidates be
 built at inference time instead of an arbitrary heuristic pairing.
 
-**Kept deliberately swappable for later:** the ONNX contract consumed by
+**Two independent ways to produce a model:** the ONNX contract consumed by
 [src/chess_ML.cpp](../src/chess_ML.cpp) - a 16-channel canonicalized board
 in, two 64-way policy heads (`from_logits`, `to_logits`) out - doesn't care
-how the model was produced. This version trains via supervised learning on
-real games; a future self-play/RL pipeline (using
-[python-chess](https://python-chess.readthedocs.io/) as the rules engine)
-could reuse the exact same [chess_cnn.py](fdq/chess_cnn.py) network class
-and export contract, only replacing the training loop in
-[train.py](fdq/train.py). A value head could be added later as a third
-ONNX output without breaking this contract, since the C++ side only reads
-the first two named outputs.
+how the model was produced. This document covers **supervised learning**
+on real human games (below). [rl_training.md](rl_training.md) covers the
+second option, **reinforcement learning** via self-play against Stockfish
+- a from-scratch-friendly, no-dataset-needed alternative that trains the
+exact same [chess_cnn.py](fdq/chess_cnn.py) network class through a
+different training loop. Point `ml_model_path` at whichever one's export
+you want Mate to use; the C++ side can't tell the difference. A value head
+could be added later as a third ONNX output without breaking this
+contract, since the C++ side only reads the first two named outputs.
 
 ## 1) Data Preparation
+
+*(This section covers the supervised pipeline only - see
+[rl_training.md](rl_training.md) if you want to train via self-play
+instead, which needs no dataset at all.)*
 
 **Source:** [Lichess/standard-chess-games](https://huggingface.co/datasets/Lichess/standard-chess-games)
 on Hugging Face (CC0 license) - the public Lichess game database, streamed

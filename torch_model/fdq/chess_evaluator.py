@@ -1,76 +1,11 @@
 from typing import Tuple
 
 import chess
-import numpy as np
 import torch
 
 from fdq.ui_functions import getIntInput
 
-# Kept in sync with torch_model/data_preparation/generate_chess_tensor.py -
-# see that module's docstring for the full channel/orientation convention.
-NB_CHANNELS = 16
-PIECE_TO_INDEX = {"P": 0, "R": 1, "N": 2, "B": 3, "Q": 4, "K": 5}
-INDEX_TO_PIECE = {v: k for k, v in PIECE_TO_INDEX.items()}
-
-
-def board_to_array(board: chess.Board) -> np.ndarray:
-    """Encode `board` as a (16, 8, 8) canonicalized tensor from the
-    perspective of the side to move (mirrors generate_chess_tensor.py)."""
-    arr = np.zeros((NB_CHANNELS, 8, 8), dtype=np.float32)
-    mover = board.turn
-    opponent = not mover
-
-    for square, piece in board.piece_map().items():
-        row = 7 - chess.square_rank(square)
-        col = chess.square_file(square)
-        if mover == chess.BLACK:
-            row = 7 - row
-            col = 7 - col
-
-        channel_offset = 0 if piece.color == mover else 6
-        arr[channel_offset + PIECE_TO_INDEX[piece.symbol().upper()], row, col] = 1.0
-
-    arr[12, :, :] = 1.0 if board.has_kingside_castling_rights(mover) else 0.0
-    arr[13, :, :] = 1.0 if board.has_queenside_castling_rights(mover) else 0.0
-    arr[14, :, :] = 1.0 if board.has_kingside_castling_rights(opponent) else 0.0
-    arr[15, :, :] = 1.0 if board.has_queenside_castling_rights(opponent) else 0.0
-
-    return arr
-
-
-def array_to_board(arr: np.ndarray, mover_is_white: bool = True) -> chess.Board:
-    """Debug helper: reconstruct an approximate board from the piece-placement
-    channels (0-11) of a canonicalized tensor - castling rights and move
-    history are not reconstructed."""
-    board = chess.Board()
-    board.clear()
-
-    for row in range(8):
-        for col in range(8):
-            r, c = row, col
-            if not mover_is_white:
-                r, c = 7 - row, 7 - col
-            square = chess.square(c, 7 - r)
-
-            for ch in range(12):
-                if arr[ch, row, col] != 0:
-                    symbol = INDEX_TO_PIECE[ch % 6]
-                    is_movers_piece = ch < 6
-                    color = mover_is_white if is_movers_piece else (not mover_is_white)
-                    if not color:
-                        symbol = symbol.lower()
-                    board.set_piece_at(square, chess.Piece.from_symbol(symbol))
-
-    return board
-
-
-def canonical_index_to_coord(idx: int, mover_is_white: bool) -> str:
-    """Map a canonical flat index [0, 63] back to a real algebraic square,
-    for readable printing only."""
-    row, col = idx // 8, idx % 8
-    if not mover_is_white:
-        row, col = 7 - row, 7 - col
-    return chess.square_name(chess.square(col, 7 - row))
+from chess_encoding import array_to_board, board_to_array, canonical_index_to_coord
 
 
 def _evaluate_batch(experiment, batch, verbose: bool = False) -> Tuple[int, int]:
