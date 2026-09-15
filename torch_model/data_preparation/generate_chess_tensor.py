@@ -1,11 +1,10 @@
 import io
-import os
-import pickle
 import json
+import os
 import pathlib
+import pickle
 import argparse
-from itertools import islice
-from typing import Tuple, Optional
+from typing import Iterator, List, Optional, Tuple
 
 try:
     import yaml  # type: ignore
@@ -15,78 +14,22 @@ except Exception:  # pragma: no cover - handled at runtime if missing
 import chess
 import chess.pgn
 import numpy as np
-import pandas as pd
+from datasets import load_dataset
 
 
-BOARD_SIZE = (8, 8, 6)
+# Canonicalized board tensor: 16 channels.
+#   0-5:   the mover's own P, R, N, B, Q, K (binary presence)
+#   6-11:  the opponent's P, R, N, B, Q, K (binary presence)
+#   12-13: the mover's own kingside / queenside castling rights (constant)
+#   14-15: the opponent's kingside / queenside castling rights (constant)
+# The board is always oriented as if the side to move were White: when
+# Black is to move, both rank and file are mirrored (a 180 degree rotation)
+# so a single model can be trained on - and used for - both colors. Row 0 is
+# the mover's opponent's back rank, row 7 the mover's own back rank, before
+# any such rotation; col 0 is file A, col 7 is file H.
+NB_CHANNELS = 16
 PIECE_TO_INDEX = {"P": 0, "R": 1, "N": 2, "B": 3, "Q": 4, "K": 5}
-INDEX_TO_PIECE = {0: "P", 1: "R", 2: "N", 3: "B", 4: "Q", 5: "K"}
-
-
-# t,date,result,welo,belo,len,date_c,resu_c,welo_c,belo_c,edate_c,setup,fen,resu2_c,oyrange,bad_len,game
-# --------------------------------------------------------------------------------------------------------
-# Position of the game in the original PGN file.
-# Date at which the game was played (the format is year.month.day).
-# result: 1, 0 or -1 corresponding to white win, draw or loose
-# ELO of withe player
-# ELO of black player
-# Number of moves in the game
-# date_c = date is corrupted or missing? true = corrup!
-# resu_c = result is corrupted or missing?
-# welo_c = withe ELO is corrupted or missing?
-# belo_c = black ELO is corrupted or missing?
-# edate_c = event date is corrupted or missing?
-# setup = setup_true or setup_false. If true then the game initial position is specified
-# fen = fen_true and fen_false. It is related to column 12.
-# In the original file the result is provided in two places. At the end of each sequence of moves and in the
-# attributes part. This flag indicates if the result is (is not) properly provided after the sequence of
-# moves (just for checking consistency in the PGN file).
-# oyrange may be oyrange_true or oyrange_false. This flag is false only for games with dates in the range
-# of years [1998,2007]. The oyrange means out of year range.
-# bad_len  indicates, when blen_true (blen_false), if the length of the game is (is not) good.
-# moves
-
-
-def flatten_coord2d(coord2d: Tuple[int, int]) -> int:
-    return (8 * coord2d[0]) + coord2d[1]
-
-
-def array_to_board(in_array: np.ndarray) -> chess.Board:
-    """Convert a (6, 8, 8) array to a chess.Board."""
-    board = chess.Board()
-    board.clear()
-
-    in_array = in_array.transpose(1, 2, 0)
-
-    for i in range(BOARD_SIZE[0]):
-        for j in range(BOARD_SIZE[1]):
-            index_piece = np.where(in_array[(i, j)] != 0)[0]
-            new_coords = flatten_coord2d((7 - i, j))
-            if index_piece.size:
-                piece = INDEX_TO_PIECE[index_piece[0]]
-                if in_array[(i, j, index_piece[0])] == -1:
-                    piece = piece.lower()
-                board.set_piece_at(new_coords, chess.Piece.from_symbol(piece))
-
-    return board
-
-
-def board_to_array(board: chess.Board) -> np.ndarray:
-    """Convert a chess.Board to a (6, 8, 8) integer array."""
-    im2d = np.array(list(str(board).replace("\n", "").replace(" ", ""))).reshape((8, 8))
-    im = np.zeros(BOARD_SIZE)
-
-    for i in range(BOARD_SIZE[0]):
-        for j in range(BOARD_SIZE[1]):
-            piece = im2d[i, j]
-            if piece == ".":
-                continue
-            if piece.isupper():
-                im[i, j, PIECE_TO_INDEX[piece.upper()]] = 1
-            else:
-                im[i, j, PIECE_TO_INDEX[piece.upper()]] = -1
-
-    return im.transpose(2, 0, 1).astype(np.int32)
+INDEX_TO_PIECE = {v: k for k, v in PIECE_TO_INDEX.items()}
 
 
 def expand_path(path: str) -> str:
@@ -112,16 +55,17 @@ def load_config(config_path: str) -> dict:
 def validate_config(cfg: dict) -> dict:
     """Validate required keys, types, and basic constraints.
 
-    Raises ValueError/FileNotFoundError with helpful messages on failure.
-    Returns the config dict (possibly with expanded paths).
+    Raises ValueError with a helpful message on failure. Returns the config
+    dict (possibly with expanded paths).
     """
     required_types = {
-        "chess_db_base_path": str,
+        "hf_dataset_name": str,
         "number_of_games": int,
-        "stopAfterXMoves": (int, type(None)),
-        "min_nb_moves": int,
-        "minElo": int,
-        "remove_duplicates": bool,
+        "min_elo": int,
+        "allowed_terminations": list,
+        "max_plies_per_game": (int, type(None)),
+        "test_ratio": (int, float),
+        "output_dir": str,
         "EXPORT_PICKLE": bool,
         "debug": bool,
     }
@@ -130,275 +74,237 @@ def validate_config(cfg: dict) -> dict:
         if key not in cfg:
             raise ValueError(f"Missing config key '{key}'")
         if not isinstance(cfg[key], typ):
-            # Render expected type(s) cleanly
-            if isinstance(typ, tuple):
-                expected = ", ".join(t.__name__ for t in typ)
-            else:
-                expected = typ.__name__
+            expected = (
+                ", ".join(t.__name__ for t in typ)
+                if isinstance(typ, tuple)
+                else typ.__name__
+            )
             raise ValueError(
                 f"Invalid type for '{key}': expected {expected}, got {type(cfg[key]).__name__}"
             )
 
     if cfg["number_of_games"] <= 0:
         raise ValueError("'number_of_games' must be > 0")
-    if cfg["min_nb_moves"] <= 0:
-        raise ValueError("'min_nb_moves' must be > 0")
-    if cfg["minElo"] <= 0:
-        raise ValueError("'minElo' must be > 0")
-    if cfg["stopAfterXMoves"] is not None and cfg["stopAfterXMoves"] <= 0:
-        raise ValueError("'stopAfterXMoves' must be > 0 or null")
+    if cfg["min_elo"] <= 0:
+        raise ValueError("'min_elo' must be > 0")
+    if cfg["max_plies_per_game"] is not None and cfg["max_plies_per_game"] <= 0:
+        raise ValueError("'max_plies_per_game' must be > 0 or null")
+    if not (0.0 <= cfg["test_ratio"] < 1.0):
+        raise ValueError("'test_ratio' must be in [0, 1)")
+    if not cfg["allowed_terminations"]:
+        raise ValueError("'allowed_terminations' must be a non-empty list")
 
-    # Validate DB path exists
-    expanded_path = expand_path(cfg["chess_db_base_path"])
-    if not os.path.exists(expanded_path):
-        raise FileNotFoundError(f"chess_db_base_path not found: {expanded_path}")
-    cfg["chess_db_base_path"] = expanded_path
-
+    cfg["output_dir"] = expand_path(cfg["output_dir"])
     return cfg
 
 
-def extract_head_lines(src_path: str, dst_path: str, n_lines: int) -> None:
-    """Write the first n_lines from src_path into dst_path using pure Python."""
-    src = expand_path(src_path)
-    with (
-        open(src, "r", encoding="utf8") as f_in,
-        open(dst_path, "w", encoding="utf8") as f_out,
-    ):
-        for line in islice(f_in, n_lines):
-            f_out.write(line)
+def square_to_canonical_index(square: int, mover_is_white: bool) -> int:
+    """Map a python-chess square (0=a1 .. 63=h8) to a flat index in [0, 63]
+    in the same row-major (row=file-independent rank order), canonicalized
+    frame used by `board_to_array` - see its docstring for the convention."""
+    file_idx = chess.square_file(square)
+    rank_idx = chess.square_rank(square)
+    row = 7 - rank_idx  # rank 8 -> row 0
+    col = file_idx
+
+    if not mover_is_white:
+        row = 7 - row
+        col = 7 - col
+
+    return row * 8 + col
 
 
-def cleanChessDB(chess_db_base_path: str, chess_db_base_path_out: str) -> None:
-    """Clean the raw DB into a CSV with headers and fields suitable for pandas."""
-    with open(chess_db_base_path, "r", encoding="utf8") as f:
-        with open(chess_db_base_path_out, "w", encoding="utf8") as fw:
-            header = next(f)
-            header = next(f)
-            header = next(f)
-            header = next(f)
-            header = next(f)
-            header = header.replace("# ", "").replace("...", "")
-            headers_clean = [h.split(".")[1] for h in header.split(" ")]
+def board_to_array(board: chess.Board) -> np.ndarray:
+    """Encode `board` as a (16, 8, 8) canonicalized tensor from the
+    perspective of the side to move. See the module docstring above for the
+    channel layout and orientation convention.
+    """
+    arr = np.zeros((NB_CHANNELS, 8, 8), dtype=np.float32)
+    mover = board.turn
+    opponent = not mover
 
-            fw.write(f"{','.join(headers_clean)}\n")
+    for square, piece in board.piece_map().items():
+        row = 7 - chess.square_rank(square)
+        col = chess.square_file(square)
+        if mover == chess.BLACK:
+            row = 7 - row
+            col = 7 - col
 
-            for i, line in enumerate(f):
-                print(f"Cleaning line {i + 1}", end="\r")
+        channel_offset = 0 if piece.color == mover else 6
+        arr[channel_offset + PIECE_TO_INDEX[piece.symbol().upper()], row, col] = 1.0
 
-                linefrag = line.split("###")
-                a = linefrag[0].split(" ")
-                a = [aa.replace(" ", "") for aa in a] + [linefrag[1]]
-                if "" in a:
-                    a.remove("")
-                fw.write(",".join(a))
+    arr[12, :, :] = 1.0 if board.has_kingside_castling_rights(mover) else 0.0
+    arr[13, :, :] = 1.0 if board.has_queenside_castling_rights(mover) else 0.0
+    arr[14, :, :] = 1.0 if board.has_kingside_castling_rights(opponent) else 0.0
+    arr[15, :, :] = 1.0 if board.has_queenside_castling_rights(opponent) else 0.0
 
-    print("\n\ndone cleaning.")
+    return arr
 
 
-def load_and_filter_data(csv_path: str, min_nb_moves: int, minElo: int) -> pd.DataFrame:
-    """Load cleaned CSV and apply all filters (valid ratings, result present, min moves, min ELO)."""
-    print("Loading data.")
-    data = pd.read_csv(csv_path, delimiter=",")
-    print(f"Nb loaded games: {len(data)}")
+def array_to_board(arr: np.ndarray, mover_is_white: bool = True) -> chess.Board:
+    """Debug helper: reconstruct an approximate board from the piece-placement
+    channels (0-11) of a canonicalized tensor, for sanity-check printing only
+    - castling rights and move history are not reconstructed."""
+    board = chess.Board()
+    board.clear()
 
-    # find non-valid ratings
-    data = data.loc[data["welo_c"] == "welo_false"]
-    data = data.loc[data["belo_c"] == "belo_false"]
+    for row in range(8):
+        for col in range(8):
+            r, c = row, col
+            if not mover_is_white:
+                r, c = 7 - row, 7 - col
+            square = chess.square(c, 7 - r)
 
-    data = data.astype({"welo": int, "belo": int})
-    data = data.drop(["welo_c", "belo_c", "t"], axis=1)
-    print(f"Nb games after removing those without rating: {len(data)}")
+            for ch in range(12):
+                if arr[ch, row, col] != 0:
+                    symbol = INDEX_TO_PIECE[ch % 6]
+                    is_movers_piece = ch < 6
+                    color = mover_is_white if is_movers_piece else (not mover_is_white)
+                    if not color:
+                        symbol = symbol.lower()
+                    board.set_piece_at(square, chess.Piece.from_symbol(symbol))
 
-    # find games without result
-    data = data.loc[data["resu_c"] == "result_false"]
-    data = data.drop(["resu_c"], axis=1)
-    print(f"Nb games after removing those without result: {len(data)}")
+    return board
 
-    # at least x moves
-    data = data.loc[data["len"] >= min_nb_moves]
-    print(
-        f"Nb games after removing those without at least {min_nb_moves} moves: {len(data)}"
-    )
 
-    # at least minElo for both players
-    data = data.loc[data["welo"] >= minElo]
-    data = data.loc[data["belo"] >= minElo]
-    print(f"Nb games after removing bad players: {len(data)}")
+def stream_filtered_games(
+    hf_dataset_name: str,
+    number_of_games: int,
+    min_elo: int,
+    allowed_terminations: List[str],
+) -> Iterator[Tuple[str, int, int]]:
+    """Stream rows from the Hugging Face dataset and yield
+    (movetext, white_elo, black_elo) for games passing the Elo/termination
+    filters, stopping once `number_of_games` have been yielded. The dataset
+    is streamed, never downloaded in full.
+    """
+    allowed = set(allowed_terminations)
+    ds = load_dataset(hf_dataset_name, split="train", streaming=True)
 
-    return data
+    yielded = 0
+    for row in ds:
+        if yielded >= number_of_games:
+            break
+
+        white_elo = row.get("WhiteElo")
+        black_elo = row.get("BlackElo")
+        termination = row.get("Termination")
+        movetext = row.get("movetext")
+
+        if white_elo is None or black_elo is None or not movetext:
+            continue
+        if termination not in allowed:
+            continue
+        if white_elo < min_elo or black_elo < min_elo:
+            continue
+
+        yielded += 1
+        print(f"Collected {yielded}/{number_of_games} games matching filters", end="\r")
+        yield movetext, int(white_elo), int(black_elo)
+
+    print()
 
 
 def generate_tensors(
-    data: pd.DataFrame,
-    stopAfterXMoves: Optional[int],
-    debug: bool,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Iterate over games to produce input positions, move deltas, resulting boards, and ratings.
-
-    Returns:
-        board_in_array: (N, 6, 8, 8)
-        board_out_array: (N, 1, 8, 8) move mask (-1 source, +1 destination; captures clipped)
-        board_out_full_array: (N, 6, 8, 8) resulting board after the black move
-        game_rating: (N,) black player's ELO
-    """
-    col = {True: "white", False: "black"}
-
-    board_in = []
-    board_out = []
-    board_out_full = []
-    game_rating = []
-
-    tot_moves = 0
-    nb_games = 0
-
-    for i, pdgame in data.iterrows():
-        nb_games += 1
-        pgngame = pdgame["game"]
-
-        if debug:
-            print(pgngame)
-
-        game = chess.pgn.read_game(io.StringIO(pgngame))
-        board = game.board()
-
-        posA = board_to_array(board)
-        posB = board_to_array(board)
-
-        for j, move in enumerate(game.mainline_moves()):
-            if debug:
-                print("-----------------------------------------")
-
-            tot_moves += 1
-            print(
-                f"processing game NB {i}, move {j}, total games: {nb_games}, total moves: {tot_moves}.",
-                end="\r",
-            )
-
-            board.push(move)
-
-            posA = posB
-            posB = board_to_array(board)
-
-            if debug:
-                print("\n")
-                print(board)
-                print(col[board.turn])
-
-            # After pushing a black move, it's White's turn.
-            if board.turn:
-                board_in.append(posA)
-                out_move = np.sum(posA - posB, axis=0)
-                # Saturate to [-1, 1] to produce a clean move mask
-                out_move = np.clip(out_move, -1, 1)
-
-                board_out.append(out_move)
-                game_rating.append(pdgame["belo"])  # black player's rating
-                board_out_full.append(posB)
-
-            if stopAfterXMoves is not None and j > stopAfterXMoves:
-                break
-
-    board_in_array = np.array(board_in)
-    board_out_array = np.expand_dims(np.array(board_out), 1)
-    board_out_full_array = np.array(board_out_full)
-    game_rating = np.array(game_rating)
-
-    print(
-        f"\nGame array shape before filtering: {board_in_array.shape} (only black moves are considered)"
-    )
-
-    return board_in_array, board_out_array, board_out_full_array, game_rating
-
-
-def dedupe_by_best_response(
-    board_in_array: np.ndarray,
-    board_out_array: np.ndarray,
-    board_out_full_array: np.ndarray,
-    game_rating: np.ndarray,
+    games: List[Tuple[str, int, int]],
+    max_plies_per_game: Optional[int],
     debug: bool,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Remove duplicate input positions, keeping the black response favored by higher cumulative ELO.
+    """Parse each game's movetext and emit one training example per ply, for
+    both White and Black moves.
 
-    Returns filtered (board_in_array_filt, board_out_array_filt, board_out_full_array_filt).
+    Returns:
+        board_in_array: (N, 16, 8, 8)
+        from_array: (N,) canonicalized "from" square index, 0-63
+        to_array: (N,) canonicalized "to" square index, 0-63
     """
-    board_in_array_filt, indices, inv_indices, counts = np.unique(
-        board_in_array,
-        axis=0,
-        return_index=True,
-        return_inverse=True,
-        return_counts=True,
-    )
+    board_in: List[np.ndarray] = []
+    from_labels: List[int] = []
+    to_labels: List[int] = []
 
-    idx_label = []
+    tot_moves = 0
+    for game_idx, (movetext, white_elo, black_elo) in enumerate(games):
+        try:
+            game = chess.pgn.read_game(io.StringIO(movetext))
+            if game is None:
+                continue
+        except Exception:  # noqa: BLE001 - skip any malformed game, data is external
+            continue
 
-    for i, idx in enumerate(indices):
-        print(f"filtering duplicates {i} / {len(indices)}", end="\r")
+        board = game.board()
 
-        if counts[i] == 1:
-            idx_label.append(idx)
-        else:
-            if debug:
-                print("action")
-                print(array_to_board(board_in_array[idx]))
+        for ply, move in enumerate(game.mainline_moves()):
+            mover_is_white = board.turn == chess.WHITE
 
-            id_dup_in_orig = np.where(inv_indices == i)[0]
+            in_array = board_to_array(board)
+            from_idx = square_to_canonical_index(move.from_square, mover_is_white)
+            to_idx = square_to_canonical_index(move.to_square, mover_is_white)
 
-            _, id_out_ndp, id_inv_out_ndp = np.unique(
-                board_out_full_array[id_dup_in_orig, ...],
-                axis=0,
-                return_index=True,
-                return_inverse=True,
-            )
-            rating = np.zeros(len(id_out_ndp))
-            for j, idback in enumerate(id_inv_out_ndp):
-                rating[idback] += game_rating[id_dup_in_orig[j]]
-
-            best_reactio_idx = id_dup_in_orig[id_out_ndp[np.argmax(rating)]]
+            board_in.append(in_array)
+            from_labels.append(from_idx)
+            to_labels.append(to_idx)
 
             if debug:
-                print("reaction")
-                print(array_to_board(board_out_full_array[best_reactio_idx]))
+                print("-----------------------------------------")
+                print(board)
+                print(f"mover: {'white' if mover_is_white else 'black'}, "
+                      f"from={from_idx}, to={to_idx}")
 
-            idx_label.append(best_reactio_idx)
+            board.push(move)
+            tot_moves += 1
 
-    idx_label = np.array(idx_label)
+            if max_plies_per_game is not None and ply + 1 >= max_plies_per_game:
+                break
 
-    # Align inputs with selected representative indices (fixes ordering mismatch with np.unique)
-    board_in_array_aligned = board_in_array[idx_label, ...]
-    board_out_array_filt = board_out_array[idx_label, ...]
-    board_out_full_array_filt = board_out_full_array[idx_label, ...]
+        print(
+            f"processed game {game_idx + 1}, total positions so far: {len(board_in)}, "
+            f"total moves: {tot_moves}.",
+            end="\r",
+        )
 
-    print("\nBoard array shape after duplicate filtering")
-    print(board_out_array_filt.shape)
+    print()
 
-    return board_in_array_aligned, board_out_array_filt, board_out_full_array_filt
+    board_in_array = np.array(board_in, dtype=np.float32)
+    from_array = np.array(from_labels, dtype=np.int64)
+    to_array = np.array(to_labels, dtype=np.int64)
+
+    print(f"\nGenerated {board_in_array.shape[0]} positions from {len(games)} games "
+          f"(both colors included).")
+
+    return board_in_array, from_array, to_array
 
 
 def save_tensor(
-    chess_db_base_path: str,
+    output_dir: str,
+    hf_dataset_name: str,
     number_of_games: int,
-    stopAfterXMoves: Optional[int],
-    minElo: int,
+    min_elo: int,
+    split_name: str,
     in_array: np.ndarray,
-    out_array: np.ndarray,
-    ext: str = "chesstensor",
+    from_array: np.ndarray,
+    to_array: np.ndarray,
+    ext: str = "chessarray",
 ) -> str:
-    """Serialize the dataset to a pickle file and return the path."""
-    chess_db_base_export = (
-        f"{chess_db_base_path.split('.', maxsplit=1)[0]}_nbGames{number_of_games}"
-        f"_stopAfter{stopAfterXMoves}_nbMoves{out_array.shape[0]}_minElo{minElo}.{ext}"
+    """Serialize one split to a pickle file and return the path."""
+    dataset_tag = hf_dataset_name.split("/")[-1]
+    filename = (
+        f"{dataset_tag}_nbGames{number_of_games}_minElo{min_elo}_{split_name}.{ext}"
     )
+    out_path = os.path.join(output_dir, filename)
 
-    print(f"Saving tensor data to {chess_db_base_export}")
-    with open(chess_db_base_export, "wb") as fn:
-        pickle.dump({"in_array": in_array, "out_array": out_array}, fn)
+    print(f"Saving {split_name} tensor data to {out_path}")
+    os.makedirs(output_dir, exist_ok=True)
+    with open(out_path, "wb") as fn:
+        pickle.dump(
+            {"in_array": in_array, "from_array": from_array, "to_array": to_array}, fn
+        )
     print("saving done")
-    return chess_db_base_export
+    return out_path
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate chess tensors from PGN DB using YAML/JSON config."
+        description="Generate chess tensors from a Hugging Face games dataset using a YAML/JSON config."
     )
     parser.add_argument(
         "--config", required=True, help="Path to YAML or JSON config file"
@@ -406,87 +312,58 @@ def main():
     args = parser.parse_args()
 
     cfg = validate_config(load_config(args.config))
-    # -------------------------------------------------------------------------
-    chess_db_base_path = cfg["chess_db_base_path"]
-    number_of_games = int(cfg["number_of_games"])  # nb games to include (tot = 2.3mio)
-    stopAfterXMoves: Optional[int] = (
-        None
-        if cfg.get("stopAfterXMoves") is None
-        else int(cfg["stopAfterXMoves"])  # stop after x moves per game
+
+    hf_dataset_name = cfg["hf_dataset_name"]
+    number_of_games = int(cfg["number_of_games"])
+    min_elo = int(cfg["min_elo"])
+    allowed_terminations = list(cfg["allowed_terminations"])
+    max_plies_per_game: Optional[int] = (
+        None if cfg.get("max_plies_per_game") is None else int(cfg["max_plies_per_game"])
     )
-    min_nb_moves = int(cfg["min_nb_moves"])  # filter games with less moves
-    minElo = int(cfg["minElo"])  # remove games with lower elo
-    remove_duplicates = bool(
-        cfg["remove_duplicates"]
-    )  # keep only one response per duplicated position
-    EXPORT_PICKLE = bool(cfg["EXPORT_PICKLE"])  # export file for later training
-    debug = bool(cfg["debug"])  # extra logging
-    # --------------------------------------------------------------------------
+    test_ratio = float(cfg["test_ratio"])
+    output_dir = cfg["output_dir"]
+    EXPORT_PICKLE = bool(cfg["EXPORT_PICKLE"])
+    debug = bool(cfg["debug"])
 
-    base_path_expanded = expand_path(chess_db_base_path)
-    processing_path = f"{base_path_expanded.split('.', maxsplit=1)[0]}_temp.txt"
-    processing_path_clean = f"{base_path_expanded.split('.', maxsplit=1)[0]}_tempc.csv"
-
-    # get lines from full file (include 5 header lines expected by cleanChessDB)
-    extract_head_lines(base_path_expanded, processing_path, number_of_games + 5)
-
-    # clean file
-    cleanChessDB(processing_path, processing_path_clean)
-
-    # load and filter
-    data = load_and_filter_data(processing_path_clean, min_nb_moves, minElo)
-
-    # tensors
-    board_in_array, board_out_array, board_out_full_array, game_rating = (
-        generate_tensors(data, stopAfterXMoves, debug)
+    games = list(
+        stream_filtered_games(hf_dataset_name, number_of_games, min_elo, allowed_terminations)
     )
-
-    # remove duplicates keeping best black reaction
-    if remove_duplicates:
-        board_in_array_filt, board_out_array, board_out_full_array = (
-            dedupe_by_best_response(
-                board_in_array,
-                board_out_array,
-                board_out_full_array,
-                game_rating,
-                debug,
-            )
+    if not games:
+        raise RuntimeError(
+            "No games matched the configured filters (min_elo / allowed_terminations); "
+            "loosen the config and try again."
         )
-    else:
-        board_in_array_filt = board_in_array
 
-    # (optional) demo prints
-    if debug:
-        nb_demo_moves = min(10, board_in_array_filt.shape[0])
-        for i in range(nb_demo_moves):
-            print("-------------------------------------")
-            print(f"Show demo move {i}/{nb_demo_moves}:")
-            print("\nwhite")
-            print(array_to_board(board_in_array_filt[i]))
-            print("\nblack response:")
-            print(array_to_board(board_out_full_array[i]))
+    n_test_games = int(len(games) * test_ratio)
+    n_train_games = len(games) - n_test_games
+    train_games = games[:n_train_games]
+    test_games = games[n_train_games:] if n_test_games > 0 else []
 
-    # export
+    print(f"Split: {len(train_games)} train games, {len(test_games)} test games")
+
+    train_in, train_from, train_to = generate_tensors(train_games, max_plies_per_game, debug)
+
     if EXPORT_PICKLE:
         save_tensor(
-            base_path_expanded,
-            number_of_games,
-            stopAfterXMoves,
-            minElo,
-            board_in_array_filt,
-            board_out_array,
-            ext="chessarray",
+            output_dir, hf_dataset_name, number_of_games, min_elo, "train",
+            train_in, train_from, train_to,
         )
 
-    # cleanup
-    try:
-        os.remove(processing_path)
-    except OSError:
-        pass
-    try:
-        os.remove(processing_path_clean)
-    except OSError:
-        pass
+    if test_games:
+        test_in, test_from, test_to = generate_tensors(test_games, max_plies_per_game, debug)
+        if EXPORT_PICKLE:
+            save_tensor(
+                output_dir, hf_dataset_name, number_of_games, min_elo, "test",
+                test_in, test_from, test_to,
+            )
+
+    if debug:
+        nb_demo = min(5, train_in.shape[0])
+        for i in range(nb_demo):
+            print("-------------------------------------")
+            print(f"Show demo position {i}/{nb_demo} (mover always shown as White):")
+            print(array_to_board(train_in[i]))
+            print(f"from={train_from[i]}, to={train_to[i]}")
 
 
 if __name__ == "__main__":

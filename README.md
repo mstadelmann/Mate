@@ -1,6 +1,6 @@
 # Mate
 
-Mate is a terminal chess program with:
+Mate is a terminal chess program built from scratch in C++ - no external chess library, no bundled engine - with:
 
 - a menu-driven CLI
 - a board editor for custom positions
@@ -16,9 +16,11 @@ Mate is a terminal chess program with:
 - Start from the standard chess opening or from a custom board
 - Play manual, random, smart-engine, or optional ML-generated moves
 - Undo using full board/state snapshots
+- Detects checkmate, stalemate, the fifty-move rule, threefold repetition, and basic insufficient-material draws
 - Save complete games and board snapshots to SQLite
 - Browse saved games interactively from the terminal
 - Host or join a network game with player names and chat
+- Optional GUI window with drag-and-drop pieces, quick-action buttons, and dedicated screens for the board editor, database browser, and network setup
 - Build and test on GitHub Actions with a Linux CI workflow
 
 ## Requirements
@@ -69,11 +71,52 @@ On first launch, Mate creates `~/.mate/config.json` when it does not already exi
 
 The supported and CI-verified path is a fresh local build from `./build/Mate`.
 
+## Running Tests
+
+CTest is enabled by default, so the test binary builds right alongside `Mate`:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+The tests drive the rules engine directly - checkmate/stalemate/draw detection, castling rights, undo - so they don't need a display or a database file to pass.
+
 ## Optional ML Support
 
 The default build does not require ONNX Runtime.
 
-To enable ML moves:
+### Installing ONNX Runtime
+
+No dedicated GPU needed - the CPU build is fine here; the bundled model is small enough that inference speed isn't a concern either way.
+
+Arch Linux:
+
+```bash
+sudo pacman -S --needed onnxruntime-cpu
+```
+
+This installs its CMake package files under `/usr/lib/cmake/onnxruntime/`, which is already on CMake's default search path - omit `CMAKE_PREFIX_PATH` entirely in the build command below (passing it is harmless, but unnecessary).
+
+Ubuntu/Debian (no apt package available):
+
+1. Grab the current `onnxruntime-linux-x64-<version>.tgz` asset from the [ONNX Runtime releases page](https://github.com/microsoft/onnxruntime/releases).
+2. Extract it, e.g. `tar xf onnxruntime-linux-x64-<version>.tgz`.
+3. Point `CMAKE_PREFIX_PATH` at the extracted folder in the build command below.
+
+Recent releases include the `lib/cmake/onnxruntime/onnxruntimeConfig.cmake` file CMake needs to find it via `find_package`; if that file isn't present in the archive you downloaded, build onnxruntime from source and `cmake --install` it instead, which always produces one.
+
+### Building with ML support
+
+Arch (package installed to the standard prefix, so no `CMAKE_PREFIX_PATH` needed):
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMATE_ENABLE_ONNX=ON
+cmake --build build --parallel
+```
+
+Ubuntu/Debian, or anywhere else ONNX Runtime was extracted to a non-standard location:
 
 ```bash
 cmake -S . -B build \
@@ -85,12 +128,12 @@ cmake --build build --parallel
 
 Notes:
 
-- CMake must be able to find `onnxruntimeConfig.cmake`
+- CMake must be able to find `onnxruntimeConfig.cmake` (see installation notes above)
 - if the bundled model exists at `torch_model/trained_models/simpleNet_torchscript.onnx`, Mate auto-detects it
-- otherwise set `ml_model_path` in `~/.mate/config.json`
-- the current ML move integration only supports the black side
+- otherwise set `ml_model_path` in `~/.mate/config.json` to a model exported from the current pipeline
+- ML moves work for both colors: the board is always encoded from the perspective of the side to move
 
-Model and training notes live in [torch_model/torch_model.md](torch_model/torch_model.md).
+Model and training notes live in [torch_model/torch_model.md](torch_model/torch_model.md) (supervised learning on real games) and [torch_model/rl_training.md](torch_model/rl_training.md) (reinforcement learning via self-play against Stockfish, no dataset needed) - either produces a model Mate can use the same way.
 
 ## Main Menu
 
@@ -99,6 +142,7 @@ Model and training notes live in [torch_model/torch_model.md](torch_model/torch_
 - `Load game from database`: browse stored games and load a snapshot
 - `Play with current board configuration`: start from whatever board is currently loaded
 - `Network game`: host or join a TCP game
+- `Settings`: view, edit, and save the engine/network settings stored in `~/.mate/config.json` (the 8x8 positional evaluation tables are not editable here - edit the file directly for those)
 - `Quit`: exit Mate
 
 ## In-Game Commands
@@ -135,22 +179,19 @@ Colors:
 
 ## Configuration
 
-Mate stores its runtime configuration in `~/.mate/config.json`.
+Mate stores its runtime configuration in `~/.mate/config.json`, created with defaults on first launch. The `Settings` entry in the main menu can view, edit, and save most of it without opening the file by hand.
 
-Useful keys:
+| Key | Meaning |
+| --- | --- |
+| `minMaxDepth` | search depth for smart moves |
+| `use_AB_pruning` | enable or disable alpha-beta pruning |
+| `position_gamma` | weight applied to piece-square tables |
+| `enable_debug_messages` | extra debug logging |
+| `db_path` | SQLite database path |
+| `network_port` | TCP port for host/join mode |
+| `ml_model_path` | ONNX model path |
 
-- `minMaxDepth`: search depth for smart moves
-- `use_AB_pruning`: enable or disable alpha-beta pruning
-- `position_gamma`: weight applied to piece-square tables
-- `enable_debug_messages`: extra debug logging
-- `db_path`: SQLite database path
-- `network_port`: TCP port for host/join mode
-- `ml_model_path`: ONNX model path
-
-Path notes:
-
-- `db_path` and `ml_model_path` may use `~`
-- Mate expands those paths when loading the config
+`db_path` and `ml_model_path` may use `~`; Mate expands both when loading the config. The 8x8 piece-square tables (`pawnEvalWhite`, `knightEvalBlack`, and so on) also live in this file but aren't exposed in the Settings menu - edit them directly if you want to retune the evaluation.
 
 ## Database
 
@@ -192,17 +233,17 @@ While connected:
 - use `c` to send chat messages
 - use `a`, `l`, `w`, `h`, `q` for the same helpers as local play
 
-
 ## Known Limits
 
 - Loading or hand-crafting an arbitrary board snapshot does not reconstruct full historical move state; Mate conservatively disables castling and en passant unless the board is the standard starting position
 - terminal rendering assumes UTF-8 support for the chess glyphs
-- draws are detected for stalemate, the fifty-move rule, and threefold repetition (by piece placement only, not full position state); insufficient-material draws are not yet detected
+- draws are detected for stalemate, the fifty-move rule, threefold repetition (by piece placement only, not full position state), and insufficient material (K vs K, K vs K+minor, and K+B vs K+B only; other dead positions such as two minors on one side are not detected)
 - network play has no encryption; the optional password only slows down guessing (a delay grows with each wrong attempt) and does not protect move/chat traffic from anyone who can observe the connection
 
 ## Project Layout
 
 - `src/`: engine, UI, networking, persistence, and config code
+- `tests/`: rules-engine smoke tests run via CTest
 - `torch_model/`: model assets, training scripts, and data prep helpers
-- `.github/workflows/`: CI and release automation
+- `.github/workflows/`: CI, plus automated patch/minor version bumps on PR pushes and merges
 

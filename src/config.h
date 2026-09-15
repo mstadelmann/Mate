@@ -47,5 +47,6 @@ extern std::string ml_model_path;
 bool load_config_from_json();
 bool save_config_to_json();
 void init_config_defaults();
+std::string get_config_file_path();
 
 #endif /* CONF_H */

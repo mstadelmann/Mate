@@ -1,0 +1,12 @@
+fdq[full]==0.1.23
+
+# fdq's ONNX export flow (mode.dump_model) doesn't pull these in itself.
+# `onnx` is needed for the default (non-dynamo) exporter; `onnxscript` only
+# if you instead choose the dynamo exporter when prompted.
+onnx
+onnxscript
+
+# Used directly by chess_evaluator.py, chess_encoding.py, rl_self_play.py
+# and train_rl.py (board representation, legal moves, and - via its
+# chess.engine submodule - talking to Stockfish over UCI for RL training).
+chess==1.11.2

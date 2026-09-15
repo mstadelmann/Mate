@@ -161,13 +161,21 @@ public:
     void set_current_player(playerColor color);
     void clear_board();
     void load_starting_position();
-    void printCurrentGame();
+    void printCurrentGame(playerColor local_color = playerColor::none);
     string current_player_string() const;
     string gameName() const { return game_name; }
+    string player_name(playerColor color) const
+    {
+        if (color == playerColor::white)
+            return white_player_name;
+        if (color == playerColor::black)
+            return black_player_name;
+        return "";
+    }
     void place_piece(boardPositionType);
     void place_piece(boardCoordinateType, pieceType);
     boardPositionType query_position(boardCoordinateType);
-    vector<boardPositionType> get_all_pieces_of_color(playerColor);
+    vector<boardPositionType> get_all_pieces_of_color(playerColor) const;
     motionVector findAllLegalMoves();
 
     motionVector findLegalPawnMoves(boardCoordinateType);
@@ -177,7 +185,7 @@ public:
     motionVector findLegalQueenMoves(boardCoordinateType);
     motionVector findLegalKingMoves(boardCoordinateType);
     bool validatePosition(boardCoordinateType) const;
-    bool applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who = moved_by::human);
+    bool applyMove(boardCoordinateType startCoord, boardCoordinateType endCoord, moved_by who = moved_by::human, pieceCode promotionChoice = pieceCode::queen);
     bool check_move_legal(motionType);
     void executeMove(motionType);
     bool manualMove();
@@ -205,6 +213,14 @@ public:
     void swapPlayers() { std::swap(current_player, other_player); }
     const boardType &board() const { return chessboard; }
     playerColor current_player_color() const { return current_player; }
+    bool can_castle_kingside(playerColor color) const
+    {
+        return color == playerColor::white ? wCanCastleKs : (color == playerColor::black ? bCanCastleKs : false);
+    }
+    bool can_castle_queenside(playerColor color) const
+    {
+        return color == playerColor::white ? wCanCastleQs : (color == playerColor::black ? bCanCastleQs : false);
+    }
     bool is_checked(playerColor color) const
     {
         if (color == playerColor::white)
@@ -231,7 +247,8 @@ public:
     }
     bool is_fifty_move_draw() const { return halfmove_clock >= 100; }
     bool is_threefold_repetition() const;
-    bool is_draw() const { return is_fifty_move_draw() || is_threefold_repetition(); }
+    bool is_insufficient_material() const;
+    bool is_draw() const { return is_fifty_move_draw() || is_threefold_repetition() || is_insufficient_material(); }
     std::size_t move_count() const { return gameHistory.empty() ? 0U : (gameHistory.size() - 1U); }
     bool has_played_moves() const { return gameHistory.size() > 1U; }
 };

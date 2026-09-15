@@ -13,6 +13,7 @@
 #include <iostream>
 #include <memory>
 #include <numeric>
+#include <vector>
 
 namespace
 {
@@ -64,15 +65,34 @@ namespace
         return true;
     }
 
-    // Convert the current board to a flat input buffer of shape (1, 6, 8, 8).
-    // Channels: 0=P, 1=R, 2=N, 3=B, 4=Q, 5=K.
-    // Values: +1 for white pieces, -1 for black pieces.
-    // Layout matches the training pipeline: input[0, c, row, col]
-    // where row=0 is rank 8 and row=7 is rank 1, col=0 is file A.
-    std::array<float, 6 * 8 * 8> board_to_input(chess &game)
+    constexpr int kNbInputChannels = 16;
+
+    // Convert the current board to a flat input buffer of shape
+    // (1, 16, 8, 8), canonicalized so the side to move is always encoded as
+    // though it were White: when it is Black's turn, the board is rotated
+    // 180 degrees (both rank and file mirrored) and "mine"/"theirs" replace
+    // "white"/"black". This lets a single model play both colors instead of
+    // only the one color it happened to be trained on.
+    //
+    // Channels 0-5:   the mover's own P, R, N, B, Q, K (binary presence).
+    // Channels 6-11:  the opponent's P, R, N, B, Q, K (binary presence).
+    // Channels 12-13: the mover's own kingside / queenside castling rights
+    //                 (constant-value planes: 1.0 if available, else 0.0).
+    // Channels 14-15: the opponent's kingside / queenside castling rights.
+    //
+    // Layout matches the training pipeline (see
+    // torch_model/data_preparation/generate_chess_tensor.py):
+    // input[0, c, row, col] where, before any canonicalization rotation,
+    // row=0 is rank 8 and row=7 is rank 1, col=0 is file A and col=7 is
+    // file H.
+    std::array<float, kNbInputChannels * 8 * 8> board_to_input(chess &game)
     {
-        std::array<float, 6 * 8 * 8> input{};
+        std::array<float, kNbInputChannels * 8 * 8> input{};
         input.fill(0.0f);
+
+        const playerColor mover = game.current_player_color();
+        const playerColor opponent = (mover == playerColor::white) ? playerColor::black : playerColor::white;
+        const bool mover_is_black = mover == playerColor::black;
 
         for (int fileIdx = 0; fileIdx < 8; ++fileIdx)
         {
@@ -86,147 +106,229 @@ namespace
                 if (pc.piece == pieceCode::empty || pc.color == playerColor::none)
                     continue;
 
-                float sign = (pc.color == playerColor::white) ? 1.0f : -1.0f;
                 int row = 8 - rank; // rank 8 -> row 0, rank 1 -> row 7
                 int col = fileIdx;  // file A -> 0
 
-                int channel = -1;
+                if (mover_is_black)
+                {
+                    row = 7 - row;
+                    col = 7 - col;
+                }
+
+                int pieceChannel = -1;
                 switch (pc.piece)
                 {
                 case pieceCode::pawn:
-                    channel = 0;
+                    pieceChannel = 0;
                     break;
                 case pieceCode::rook:
-                    channel = 1;
+                    pieceChannel = 1;
                     break;
                 case pieceCode::knight:
-                    channel = 2;
+                    pieceChannel = 2;
                     break;
                 case pieceCode::bishop:
-                    channel = 3;
+                    pieceChannel = 3;
                     break;
                 case pieceCode::queen:
-                    channel = 4;
+                    pieceChannel = 4;
                     break;
                 case pieceCode::king:
-                    channel = 5;
+                    pieceChannel = 5;
                     break;
                 case pieceCode::empty:
                 default:
-                    channel = -1;
+                    pieceChannel = -1;
                     break;
                 }
 
-                if (channel >= 0)
+                if (pieceChannel >= 0)
                 {
-                    const int idx = channel * 64 + row * 8 + col;
-                    input[static_cast<size_t>(idx)] = sign;
+                    const int channelOffset = (pc.color == mover) ? 0 : 6;
+                    const int idx = (channelOffset + pieceChannel) * 64 + row * 8 + col;
+                    input[static_cast<size_t>(idx)] = 1.0f;
                 }
             }
+        }
+
+        const float moverKs = game.can_castle_kingside(mover) ? 1.0f : 0.0f;
+        const float moverQs = game.can_castle_queenside(mover) ? 1.0f : 0.0f;
+        const float oppKs = game.can_castle_kingside(opponent) ? 1.0f : 0.0f;
+        const float oppQs = game.can_castle_queenside(opponent) ? 1.0f : 0.0f;
+        for (int sq = 0; sq < 64; ++sq)
+        {
+            input[static_cast<size_t>(12 * 64 + sq)] = moverKs;
+            input[static_cast<size_t>(13 * 64 + sq)] = moverQs;
+            input[static_cast<size_t>(14 * 64 + sq)] = oppKs;
+            input[static_cast<size_t>(15 * 64 + sq)] = oppQs;
         }
 
         return input;
     }
 
-    // Map a flat index in [0, 63] to board coordinates (file, rank).
-    // Index is assumed to be row-major over (row, col) where row=0 is rank 8.
-    boardCoordinateType index_to_coord(int idx)
+    // Map a flat index in [0, 63] back to real board coordinates, undoing
+    // the 180-degree canonicalization rotation applied in board_to_input()
+    // when `mover` is black. Index is row-major over (row, col) in the
+    // canonical (post-rotation) frame - see board_to_input() above.
+    boardCoordinateType canonical_index_to_coord(int idx, playerColor mover)
     {
-        int row = idx / 8; // 0..7, 0 is top (rank 8)
-        int col = idx % 8; // 0..7, 0 is file A
+        int row = idx / 8; // 0..7
+        int col = idx % 8; // 0..7
+
+        if (mover == playerColor::black)
+        {
+            row = 7 - row;
+            col = 7 - col;
+        }
+
         char file = static_cast<char>('A' + col);
-        int rank = 8 - row; // 8..1
+        int rank = 8 - row; // row=0 -> rank 8
         return {file, rank};
     }
 
-    // Run the ONNX model and fill scores[64] with output logits.
-    // NOTE: The exported model was trained with a fixed batch size of 256
-    // and expects input of shape (256, 6, 8, 8). We replicate the current
-    // board 256 times and only use the first prediction.
-    bool run_onnx(const std::array<float, 6 * 8 * 8> &input, std::array<float, 64> &scores)
+    // Run the ONNX model and fill from_scores[64]/to_scores[64] with the two
+    // policy heads' logits. The model takes a single (1, 16, 8, 8) input -
+    // no fixed-batch replication needed - and returns two outputs in order:
+    // from_logits, then to_logits (see chess_cnn.py's ChessCNN.forward()).
+    // This ONNX input/output contract is deliberately independent of how the
+    // model was trained (supervised or otherwise), so any model exposing it
+    // works here.
+    bool run_onnx(const std::array<float, kNbInputChannels * 8 * 8> &input,
+                  std::array<float, 64> &from_scores,
+                  std::array<float, 64> &to_scores)
     {
         if (!g_ort_session)
         {
             return false;
         }
 
-        Ort::AllocatorWithDefaultOptions allocator;
-
-        // Assume single input and single output.
-        auto input_name = g_ort_session->GetInputNameAllocated(0, allocator);
-        auto output_name = g_ort_session->GetOutputNameAllocated(0, allocator);
-
-        constexpr int64_t kBatchSize = 256;
-        std::array<int64_t, 4> input_shape{kBatchSize, 6, 8, 8};
-        Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
-
-        // Create a batched input by repeating the single-board input
-        // kBatchSize times to match the model's fixed batch dimension.
-        std::vector<float> input_batched(static_cast<size_t>(kBatchSize) * input.size());
-        for (int64_t b = 0; b < kBatchSize; ++b)
+        try
         {
-            std::copy(input.begin(), input.end(),
-                      input_batched.begin() + static_cast<size_t>(b) * input.size());
+            Ort::AllocatorWithDefaultOptions allocator;
+
+            if (g_ort_session->GetOutputCount() < 2)
+            {
+                std::cerr << "[ML] ONNX model exposes " << g_ort_session->GetOutputCount()
+                          << " output(s); expected 2 (from_logits, to_logits)." << std::endl;
+                return false;
+            }
+
+            auto input_name = g_ort_session->GetInputNameAllocated(0, allocator);
+            auto from_output_name = g_ort_session->GetOutputNameAllocated(0, allocator);
+            auto to_output_name = g_ort_session->GetOutputNameAllocated(1, allocator);
+
+            std::array<int64_t, 4> input_shape{1, kNbInputChannels, 8, 8};
+            Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
+
+            Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+                mem_info,
+                const_cast<float *>(input.data()),
+                input.size(),
+                input_shape.data(),
+                input_shape.size());
+
+            const char *input_names[] = {input_name.get()};
+            const char *output_names[] = {from_output_name.get(), to_output_name.get()};
+
+            auto output_tensors = g_ort_session->Run(
+                Ort::RunOptions{nullptr},
+                input_names,
+                &input_tensor,
+                1,
+                output_names,
+                2);
+
+            if (output_tensors.size() < 2 || !output_tensors[0].IsTensor() || !output_tensors[1].IsTensor())
+            {
+                std::cerr << "[ML] ONNX model did not return two tensor outputs." << std::endl;
+                return false;
+            }
+
+            auto read_scores = [](Ort::Value &tensor, std::array<float, 64> &out) -> bool
+            {
+                // Verify the element count before reading, since a
+                // mismatched/corrupt model (ml_model_path is
+                // config-controlled) would otherwise cause an
+                // out-of-bounds read here.
+                const size_t element_count = tensor.GetTensorTypeAndShapeInfo().GetElementCount();
+                if (element_count < out.size())
+                {
+                    std::cerr << "[ML] ONNX output has " << element_count
+                              << " elements, expected at least " << out.size() << "." << std::endl;
+                    return false;
+                }
+                const float *data = tensor.GetTensorMutableData<float>();
+                std::copy(data, data + out.size(), out.begin());
+                return true;
+            };
+
+            return read_scores(output_tensors[0], from_scores) && read_scores(output_tensors[1], to_scores);
         }
-
-        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-            mem_info,
-            input_batched.data(),
-            static_cast<size_t>(input_batched.size()),
-            input_shape.data(),
-            input_shape.size());
-
-        const char *input_names[] = {input_name.get()};
-        const char *output_names[] = {output_name.get()};
-
-        auto output_tensors = g_ort_session->Run(
-            Ort::RunOptions{nullptr},
-            input_names,
-            &input_tensor,
-            1,
-            output_names,
-            1);
-
-        if (output_tensors.empty() || !output_tensors[0].IsTensor())
+        catch (const Ort::Exception &e)
         {
-            std::cerr << "[ML] ONNX model did not return a tensor output." << std::endl;
+            // A model that doesn't match the expected input/output shapes
+            // (e.g. an old model exported before this contract changed)
+            // throws here rather than crashing the whole app.
+            std::cerr << "[ML] ONNX inference failed: " << e.what() << std::endl;
             return false;
         }
-
-        float *out_data = output_tensors[0].GetTensorMutableData<float>();
-        // Assume shape (1, 64) or (64,).
-        for (size_t i = 0; i < scores.size(); ++i)
-        {
-            scores[i] = out_data[i];
-        }
-
-        return true;
     }
 
-    // Given the model's score vector, try the best-scoring suggestions in
-    // descending order until a legal move is found.
-    bool scores_to_legal_move(chess &game, const std::array<float, 64> &scores, motionType &outMove)
+    // Given the model's two score vectors, rank (from, to) candidates by
+    // joint score and try them in descending order until a legal move is
+    // found. Only the top-K scoring squares on each side are combined
+    // (K*K candidates) rather than all 64*64, since the legal one is
+    // overwhelmingly likely to involve one of the model's top picks.
+    bool scores_to_legal_move(chess &game, const std::array<float, 64> &from_scores,
+                               const std::array<float, 64> &to_scores, motionType &outMove)
     {
-        // Build index arrays 0..63 and sort them by score.
+        constexpr int kTopK = 8;
+
         std::array<int, 64> from_order{};
         std::array<int, 64> to_order{};
         std::iota(from_order.begin(), from_order.end(), 0);
         std::iota(to_order.begin(), to_order.end(), 0);
 
         std::sort(from_order.begin(), from_order.end(), [&](int a, int b)
-                  { return scores[static_cast<size_t>(a)] < scores[static_cast<size_t>(b)]; });
+                  { return from_scores[static_cast<size_t>(a)] > from_scores[static_cast<size_t>(b)]; });
         std::sort(to_order.begin(), to_order.end(), [&](int a, int b)
-                  { return scores[static_cast<size_t>(a)] > scores[static_cast<size_t>(b)]; });
+                  { return to_scores[static_cast<size_t>(a)] > to_scores[static_cast<size_t>(b)]; });
+
+        const playerColor mover = game.current_player_color();
+
+        struct Candidate
+        {
+            int from_idx;
+            int to_idx;
+            float joint_score;
+        };
+
+        std::vector<Candidate> candidates;
+        candidates.reserve(static_cast<size_t>(kTopK) * static_cast<size_t>(kTopK));
+        for (int i = 0; i < kTopK; ++i)
+        {
+            for (int j = 0; j < kTopK; ++j)
+            {
+                int from_idx = from_order[static_cast<size_t>(i)];
+                int to_idx = to_order[static_cast<size_t>(j)];
+                if (from_idx == to_idx)
+                {
+                    continue; // a move can't stay on the same square
+                }
+                candidates.push_back({from_idx, to_idx,
+                                       from_scores[static_cast<size_t>(from_idx)] + to_scores[static_cast<size_t>(to_idx)]});
+            }
+        }
+
+        std::sort(candidates.begin(), candidates.end(), [](const Candidate &a, const Candidate &b)
+                  { return a.joint_score > b.joint_score; });
 
         motionVector legalMoves = game.findAllLegalMoves();
 
-        for (std::size_t k = 0; k < from_order.size(); ++k)
+        for (std::size_t k = 0; k < candidates.size(); ++k)
         {
-            int idx_min = from_order[k];
-            int idx_max = to_order[k];
-
-            boardCoordinateType fromCoord = index_to_coord(idx_min);
-            boardCoordinateType toCoord = index_to_coord(idx_max);
+            boardCoordinateType fromCoord = canonical_index_to_coord(candidates[k].from_idx, mover);
+            boardCoordinateType toCoord = canonical_index_to_coord(candidates[k].to_idx, mover);
 
             std::cout << "[ML] Candidate " << (k + 1) << ": "
                       << fromCoord.file << fromCoord.rank
@@ -260,14 +362,6 @@ namespace
 
 bool chess::mlMove()
 {
-    // ML-based move generation is currently only supported for black.
-    if (current_player != playerColor::black)
-    {
-        std::cout << "[ML] ML moves are only supported for the black player (current: "
-                  << current_player_string() << ")." << std::endl;
-        return false;
-    }
-
     if (!load_onnx_session_once())
     {
         std::cout << "[ML] Could not load ONNX model; aborting ML move." << std::endl;
@@ -275,15 +369,16 @@ bool chess::mlMove()
     }
 
     auto input = board_to_input(*this);
-    std::array<float, 64> scores{};
-    if (!run_onnx(input, scores))
+    std::array<float, 64> from_scores{};
+    std::array<float, 64> to_scores{};
+    if (!run_onnx(input, from_scores, to_scores))
     {
         std::cout << "[ML] ONNX inference failed; aborting ML move." << std::endl;
         return false;
     }
 
     motionType mlMove;
-    if (!scores_to_legal_move(*this, scores, mlMove))
+    if (!scores_to_legal_move(*this, from_scores, to_scores, mlMove))
     {
         return false;
     }

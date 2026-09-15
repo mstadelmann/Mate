@@ -14,7 +14,7 @@ def fdq_train(experiment: fdqExperiment) -> None:
     iprint("Default training")
 
     data = experiment.data["CHESS"]
-    model = experiment.models["simpleNet"]
+    model = experiment.models["chessCNN"]
 
     # Determine the autocast device type from the experiment's device.
     device_type = getattr(getattr(experiment, "device", None), "type", "cpu")
@@ -30,24 +30,23 @@ def fdq_train(experiment: fdqExperiment) -> None:
         for nb_batch, batch in enumerate(data.train_data_loader):
             pbar.update(nb_batch * experiment.cfg.data.CHESS.args.train_batch_size)
 
-            inputs = batch["inputs"]
-            targets = batch["targets"]
-            inputs = inputs.to(experiment.device).type(torch.float32)
-            targets = targets.to(experiment.device)
+            inputs = batch["inputs"].to(experiment.device).type(torch.float32)
+            from_label = batch["from_label"].to(experiment.device)
+            to_label = batch["to_label"].to(experiment.device)
 
             with torch.autocast(device_type=device_type, enabled=experiment.useAMP):
-                output = model(inputs)
+                from_logits, to_logits = model(inputs)
                 loss_tensor = (
-                    experiment.losses["mse_loss"](output, targets)
-                    / experiment.gradacc_iter
-                )
+                    experiment.losses["ce_from"](from_logits, from_label)
+                    + experiment.losses["ce_to"](to_logits, to_label)
+                ) / experiment.gradacc_iter
                 if experiment.useAMP and experiment.scaler is not None:
                     experiment.scaler.scale(loss_tensor).backward()
                 else:
                     loss_tensor.backward()
 
             experiment.update_gradients(
-                b_idx=nb_batch, loader_name="CHESS", model_name="simpleNet"
+                b_idx=nb_batch, loader_name="CHESS", model_name="chessCNN"
             )
 
             train_loss_sum += loss_tensor.detach().item()
@@ -62,13 +61,17 @@ def fdq_train(experiment: fdqExperiment) -> None:
             pbar.update(nb_batch * experiment.cfg.data.CHESS.args.val_batch_size)
 
             inputs = batch["inputs"]
-            targets = batch["targets"]
+            from_label = batch["from_label"]
+            to_label = batch["to_label"]
 
             with torch.no_grad():
                 inputs = inputs.to(experiment.device)
-                output = model(inputs)
-                targets = targets.to(experiment.device)
-                loss_tensor = experiment.losses["mse_loss"](output, targets)
+                from_logits, to_logits = model(inputs)
+                from_label = from_label.to(experiment.device)
+                to_label = to_label.to(experiment.device)
+                loss_tensor = experiment.losses["ce_from"](from_logits, from_label) + (
+                    experiment.losses["ce_to"](to_logits, to_label)
+                )
 
             val_loss_sum += loss_tensor.detach().item()
         experiment.valLoss = val_loss_sum / len(data.val_data_loader.dataset)
