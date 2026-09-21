@@ -95,13 +95,16 @@ struct ChessGuiNetworkState
 // One editable config.json entry: `value` is always the raw text the user
 // sees/types, even for numeric fields, since the GUI edits it as a plain
 // text field; `is_bool` fields are toggled ("yes"/"no") by a click instead
-// of opening for typing. The field list order is meaningful - main.cpp
-// builds and parses it positionally, mirroring the CLI settings menu.
+// of opening for typing. `is_path` fields additionally get a "Browse"
+// button that opens an in-GUI file picker instead of requiring the path to
+// be typed by hand. The field list order is meaningful - main.cpp builds
+// and parses it positionally, mirroring the CLI settings menu.
 struct ChessGuiSettingsField
 {
     std::string label;
     std::string value;
     bool is_bool = false;
+    bool is_path = false;
 };
 
 struct ChessGuiSettingsState

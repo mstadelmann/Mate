@@ -561,8 +561,8 @@ namespace
         };
         auto add_bool = [&](const std::string &label, bool value)
         { state.fields.push_back({label, value ? "yes" : "no", true}); };
-        auto add_string = [&](const std::string &label, const std::string &value)
-        { state.fields.push_back({label, value, false}); };
+        auto add_string = [&](const std::string &label, const std::string &value, bool is_path = false)
+        { state.fields.push_back({label, value, false, is_path}); };
 
         add_int("Pawn value", pawnValue);
         add_int("Knight value", knightValue);
@@ -577,9 +577,9 @@ namespace
         add_int("Search depth", minMaxDepth);
         add_bool("Alpha-beta pruning", use_AB_pruning);
         add_bool("Debug messages", enable_debug_messages);
-        add_string("Database path", db_path);
+        add_string("Database path", db_path, true);
         add_int("Network port", network_port);
-        add_string("ML model path", ml_model_path);
+        add_string("ML model path", ml_model_path, true);
         return state;
     }
 

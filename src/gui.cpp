@@ -11,12 +11,15 @@
 #include <cctype>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <deque>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <tuple>
 #include <utility>
@@ -839,6 +842,144 @@ namespace
         return std::string(password.size(), '*');
     }
 
+    // --- File picker (for settings fields marked is_path) -------------------
+    //
+    // A small in-GUI directory browser, drawn with the same SDL2/FreeType
+    // primitives as everything else, rather than pulling in a native file
+    // dialog dependency - this project otherwise builds everything from
+    // scratch, and a native dialog would need an external helper program
+    // (zenity/kdialog/etc.) that isn't guaranteed to be installed anywhere
+    // this is built.
+
+    struct FileBrowserEntry
+    {
+        std::string name;
+        bool is_dir = false;
+    };
+
+    struct FileBrowserState
+    {
+        bool open = false;
+        int target_field_index = -1;
+        std::string current_dir;
+        std::vector<FileBrowserEntry> entries; // sorted: directories first, then files, each case-insensitively
+        bool has_parent = false;                // true unless current_dir is a filesystem root
+        int highlighted_index = -1;             // keyboard/mouse-hover selection; -1 = none. Index 0 is
+                                                  // the ".." row when has_parent is true, otherwise index 0
+                                                  // is entries[0].
+        int scroll_offset = 0;
+        std::string status_message;
+    };
+
+    std::string expand_tilde_gui(const std::string &path)
+    {
+        if (!path.empty() && path[0] == '~' && (path.size() == 1 || path[1] == '/'))
+        {
+            const char *home = std::getenv("HOME");
+            if (home != nullptr)
+            {
+                return std::string(home) + path.substr(1);
+            }
+        }
+        return path;
+    }
+
+    // Total row count in the current listing, ".." included when present -
+    // shared by rendering, click hit-testing, and keyboard navigation so all
+    // three agree on what row index N means.
+    int file_browser_row_count(const FileBrowserState &state)
+    {
+        return static_cast<int>(state.entries.size()) + (state.has_parent ? 1 : 0);
+    }
+
+    // Refills `state.entries`/`has_parent` from `dir` on disk. Kept
+    // exception-safe (an unreadable directory - permissions, a path that
+    // stopped existing - reports a status message and leaves the browser
+    // showing its previous listing rather than crashing or going blank).
+    void list_directory_locked(FileBrowserState &state, const std::string &dir)
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path normalized = fs::path(dir).lexically_normal();
+
+        std::vector<FileBrowserEntry> dirs;
+        std::vector<FileBrowserEntry> files;
+
+        fs::directory_iterator it(normalized, fs::directory_options::skip_permission_denied, ec);
+        if (ec)
+        {
+            state.status_message = "Cannot open '" + normalized.string() + "': " + ec.message();
+            return;
+        }
+
+        for (const auto &entry : it)
+        {
+            std::error_code entry_ec;
+            const bool is_dir = entry.is_directory(entry_ec);
+            FileBrowserEntry item{entry.path().filename().string(), is_dir && !entry_ec};
+            (item.is_dir ? dirs : files).push_back(std::move(item));
+        }
+
+        auto case_insensitive_less = [](const FileBrowserEntry &a, const FileBrowserEntry &b)
+        {
+            std::string la = a.name;
+            std::string lb = b.name;
+            std::transform(la.begin(), la.end(), la.begin(), [](unsigned char c)
+                            { return std::tolower(c); });
+            std::transform(lb.begin(), lb.end(), lb.begin(), [](unsigned char c)
+                            { return std::tolower(c); });
+            return la < lb;
+        };
+        std::sort(dirs.begin(), dirs.end(), case_insensitive_less);
+        std::sort(files.begin(), files.end(), case_insensitive_less);
+
+        state.current_dir = normalized.string();
+        state.entries.clear();
+        state.entries.reserve(dirs.size() + files.size());
+        state.entries.insert(state.entries.end(), dirs.begin(), dirs.end());
+        state.entries.insert(state.entries.end(), files.begin(), files.end());
+        state.has_parent = normalized.has_parent_path() && normalized.parent_path() != normalized;
+        state.highlighted_index = -1;
+        state.scroll_offset = 0;
+        state.status_message.clear();
+    }
+
+    // Picks a sensible starting directory from whatever's currently typed
+    // into the field (which may be empty, a bare filename, a full path to a
+    // file that may or may not exist yet, or already a directory) - falls
+    // back to $HOME, then to "/", so the browser always has somewhere valid
+    // to open.
+    std::string starting_directory_for_field(const std::string &raw_value)
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const std::string expanded = expand_tilde_gui(raw_value);
+
+        if (!expanded.empty())
+        {
+            fs::path candidate(expanded);
+            if (fs::is_directory(candidate, ec))
+            {
+                return candidate.string();
+            }
+            if (candidate.has_parent_path())
+            {
+                fs::path parent = candidate.parent_path();
+                if (fs::is_directory(parent, ec))
+                {
+                    return parent.string();
+                }
+            }
+        }
+
+        const char *home = std::getenv("HOME");
+        if (home != nullptr && fs::is_directory(home, ec))
+        {
+            return home;
+        }
+        return "/";
+    }
+
     std::string color_name(playerColor color)
     {
         switch (color)
@@ -979,6 +1120,138 @@ namespace
             y += row_height + gap;
         }
         return rects;
+    }
+
+    // Reserves a fixed-width sub-rect at the right edge of a settings field
+    // row for its "Browse" button (drawn/hit-tested only for is_path
+    // fields); the value text area is shrunk by this same width so the two
+    // never overlap - see the settings render/click code.
+    SDL_Rect settings_browse_button_rect(const SDL_Rect &row_rect)
+    {
+        const int button_width = std::min(72, row_rect.w / 3);
+        const int margin = 6;
+        return SDL_Rect{row_rect.x + row_rect.w - button_width - margin, row_rect.y + 2, button_width, std::max(1, row_rect.h - 4)};
+    }
+
+    struct FileBrowserLayout
+    {
+        SDL_Rect panel_rect{};
+        SDL_Rect title_rect{};
+        SDL_Rect path_rect{};
+        SDL_Rect list_rect{};
+        std::vector<SDL_Rect> row_rects; // one per visible row within list_rect
+        SDL_Rect cancel_rect{};
+        SDL_Rect status_rect{};
+    };
+
+    // A centered modal-style panel, sized off the whole window rather than
+    // the side panel, since a file listing needs real room to be usable.
+    FileBrowserLayout compute_file_browser_layout(int window_width, int window_height)
+    {
+        FileBrowserLayout result;
+        const int margin_x = std::max(40, window_width / 8);
+        const int margin_y = std::max(30, window_height / 10);
+        result.panel_rect = SDL_Rect{margin_x, margin_y, window_width - 2 * margin_x, window_height - 2 * margin_y};
+
+        const int pad = 16;
+        int y = result.panel_rect.y + pad;
+        result.title_rect = SDL_Rect{result.panel_rect.x + pad, y, result.panel_rect.w - 2 * pad, 22};
+        y += 26;
+        result.path_rect = SDL_Rect{result.panel_rect.x + pad, y, result.panel_rect.w - 2 * pad, 18};
+        y += 26;
+
+        const int footer_h = 44;
+        const int list_top = y;
+        const int list_bottom = result.panel_rect.y + result.panel_rect.h - footer_h - pad;
+        result.list_rect = SDL_Rect{result.panel_rect.x + pad, list_top, result.panel_rect.w - 2 * pad, std::max(0, list_bottom - list_top)};
+
+        constexpr int row_height = 26;
+        const int visible_rows = std::max(1, result.list_rect.h / row_height);
+        result.row_rects.resize(static_cast<std::size_t>(visible_rows));
+        for (int i = 0; i < visible_rows; ++i)
+        {
+            result.row_rects[static_cast<std::size_t>(i)] = SDL_Rect{result.list_rect.x, result.list_rect.y + i * row_height, result.list_rect.w, row_height};
+        }
+
+        const int footer_y = list_bottom + pad;
+        result.cancel_rect = SDL_Rect{result.panel_rect.x + result.panel_rect.w - pad - 100, footer_y, 100, 32};
+        result.status_rect = SDL_Rect{result.panel_rect.x + pad, footer_y, std::max(0, result.panel_rect.w - 2 * pad - 110), 32};
+        return result;
+    }
+
+    // Draws the file picker as a dimmed-backdrop modal over whatever's
+    // behind it (only ever the settings screen today). `hover_index` is the
+    // row under the mouse (or -1); `state.highlighted_index` is the
+    // keyboard-selected row - both get the same highlight treatment so
+    // mouse and keyboard users see consistent feedback.
+    void render_file_browser(SDL_Renderer *renderer, FontRenderer &font_renderer, int window_width, int window_height,
+                              const FileBrowserState &state, int hover_index,
+                              SDL_Color panel_bg, SDL_Color label_color, SDL_Color muted_label,
+                              SDL_Color button_hover, SDL_Color button_fill, SDL_Color button_outline,
+                              SDL_Color focus_accent, SDL_Color overlay_backdrop)
+    {
+        const FileBrowserLayout fb = compute_file_browser_layout(window_width, window_height);
+
+        fill_rect(renderer, SDL_Rect{0, 0, window_width, window_height}, overlay_backdrop);
+
+        fill_rect(renderer, fb.panel_rect, panel_bg);
+        draw_rect(renderer, fb.panel_rect, focus_accent);
+
+        const std::string title = "Select a file";
+        font_renderer.draw_text(title, fb.title_rect.x, fb.title_rect.y, 18, label_color);
+        const std::string path_text = elide_left(font_renderer, state.current_dir, fb.path_rect.w, 13);
+        font_renderer.draw_text(path_text, fb.path_rect.x, fb.path_rect.y, 13, muted_label);
+
+        const int row_count = file_browser_row_count(state);
+        for (std::size_t i = 0; i < fb.row_rects.size(); ++i)
+        {
+            const int row_index = state.scroll_offset + static_cast<int>(i);
+            if (row_index >= row_count)
+            {
+                break;
+            }
+
+            const SDL_Rect &row_rect = fb.row_rects[i];
+            if (row_index == hover_index || row_index == state.highlighted_index)
+            {
+                fill_rect(renderer, row_rect, button_hover);
+            }
+
+            std::string text;
+            if (state.has_parent && row_index == 0)
+            {
+                text = ".. (parent directory)";
+            }
+            else
+            {
+                const std::size_t entry_index = static_cast<std::size_t>(row_index - (state.has_parent ? 1 : 0));
+                const FileBrowserEntry &entry = state.entries[entry_index];
+                text = entry.is_dir ? (entry.name + "/") : entry.name;
+            }
+
+            constexpr int text_size = 14;
+            const std::string elided = elide_left(font_renderer, text, std::max(1, row_rect.w - 16), text_size);
+            font_renderer.draw_text(elided, row_rect.x + 8, row_rect.y + (row_rect.h - text_size) / 2, text_size, label_color);
+        }
+
+        if (row_count == 0)
+        {
+            font_renderer.draw_text("(empty directory)", fb.list_rect.x + 8, fb.list_rect.y + 4, 13, muted_label);
+        }
+
+        fill_rect(renderer, fb.cancel_rect, button_fill);
+        draw_rect(renderer, fb.cancel_rect, button_outline);
+        draw_text_centered(font_renderer, "Cancel", fb.cancel_rect, 14, label_color);
+
+        std::string status = state.status_message;
+        if (status.empty() && row_count > static_cast<int>(fb.row_rects.size()))
+        {
+            status = "Scroll for more (" + std::to_string(row_count) + " entries) - mouse wheel or arrow keys.";
+        }
+        if (!status.empty())
+        {
+            draw_wrapped_text(font_renderer, status, fb.status_rect.x, fb.status_rect.y, fb.status_rect.w, 13, muted_label);
+        }
     }
 
     // Anchored above the footer (fixed height, independent of how tall the
@@ -1249,6 +1522,8 @@ namespace
             pressed_menu_index_ = -1;
             hovered_menu_index_ = -1;
             active_text_field_ = TextInputField::none;
+            file_browser_ = FileBrowserState{};
+            file_browser_hover_index_ = -1;
         }
 
         void set_board_editor_state(const ChessGuiBoardEditorState &state) override
@@ -1447,6 +1722,8 @@ namespace
                 ChessGuiSettingsState settings_state_copy;
                 ChessGuiGameActionState game_action_state_copy;
                 ChessGuiChatState chat_state_copy;
+                FileBrowserState file_browser_copy;
+                int file_browser_hover_index_copy = -1;
                 playerColor local_player_color_copy = playerColor::none;
                 TextInputField active_text_field = TextInputField::none;
                 bool dragging_copy = false;
@@ -1469,6 +1746,8 @@ namespace
                     settings_state_copy = settings_state_;
                     game_action_state_copy = game_action_state_;
                     chat_state_copy = chat_state_;
+                    file_browser_copy = file_browser_;
+                    file_browser_hover_index_copy = file_browser_hover_index_;
                     local_player_color_copy = local_player_color_;
                     active_text_field = active_text_field_;
                     dragging_copy = dragging_;
@@ -1500,6 +1779,8 @@ namespace
                                 settings_state_copy,
                                 game_action_state_copy,
                                 chat_state_copy,
+                                file_browser_copy,
+                                file_browser_hover_index_copy,
                                 local_player_color_copy,
                                 active_text_field,
                                 dragging_copy,
@@ -1576,6 +1857,132 @@ namespace
             }
         }
 
+        // Opens the file picker over the settings screen for
+        // settings_state_.fields[field_index], starting from whatever
+        // directory best matches that field's current value.
+        void open_file_browser_locked(int field_index)
+        {
+            if (field_index < 0 || static_cast<std::size_t>(field_index) >= settings_state_.fields.size())
+            {
+                return;
+            }
+            file_browser_ = FileBrowserState{};
+            file_browser_.target_field_index = field_index;
+            file_browser_.open = true;
+            list_directory_locked(file_browser_, starting_directory_for_field(settings_state_.fields[static_cast<std::size_t>(field_index)].value));
+            // Typing must not leak into the settings field underneath while
+            // the picker has focus.
+            active_text_field_ = TextInputField::none;
+        }
+
+        // Row index -> either navigate into it (".." or a directory) or
+        // pick it (a file, which fills the target field and closes the
+        // picker). Shared by mouse clicks and the Enter key so both paths
+        // behave identically.
+        void activate_file_browser_row_locked(int row_index)
+        {
+            if (row_index < 0 || row_index >= file_browser_row_count(file_browser_))
+            {
+                return;
+            }
+
+            namespace fs = std::filesystem;
+            if (file_browser_.has_parent && row_index == 0)
+            {
+                list_directory_locked(file_browser_, fs::path(file_browser_.current_dir).parent_path().string());
+                return;
+            }
+
+            const std::size_t entry_index = static_cast<std::size_t>(row_index - (file_browser_.has_parent ? 1 : 0));
+            const FileBrowserEntry &entry = file_browser_.entries[entry_index];
+            const std::string full_path = (fs::path(file_browser_.current_dir) / entry.name).string();
+
+            if (entry.is_dir)
+            {
+                list_directory_locked(file_browser_, full_path);
+                return;
+            }
+
+            if (file_browser_.target_field_index >= 0 &&
+                static_cast<std::size_t>(file_browser_.target_field_index) < settings_state_.fields.size())
+            {
+                settings_state_.fields[static_cast<std::size_t>(file_browser_.target_field_index)].value = full_path;
+            }
+            file_browser_.open = false;
+        }
+
+        void handle_file_browser_click_locked(const FileBrowserLayout &fb_layout, int mouse_x, int mouse_y)
+        {
+            if (point_in_rect(mouse_x, mouse_y, fb_layout.cancel_rect))
+            {
+                file_browser_.open = false;
+                return;
+            }
+
+            if (!point_in_rect(mouse_x, mouse_y, fb_layout.panel_rect))
+            {
+                // Clicking outside the modal dismisses it, like clicking
+                // away from any other popover.
+                file_browser_.open = false;
+                return;
+            }
+
+            for (std::size_t i = 0; i < fb_layout.row_rects.size(); ++i)
+            {
+                if (point_in_rect(mouse_x, mouse_y, fb_layout.row_rects[i]))
+                {
+                    const int row_index = file_browser_.scroll_offset + static_cast<int>(i);
+                    activate_file_browser_row_locked(row_index);
+                    return;
+                }
+            }
+        }
+
+        void handle_file_browser_key_locked(SDL_Keycode key, int visible_rows)
+        {
+            const int row_count = file_browser_row_count(file_browser_);
+            switch (key)
+            {
+            case SDLK_ESCAPE:
+                file_browser_.open = false;
+                break;
+            case SDLK_UP:
+                if (row_count > 0)
+                {
+                    file_browser_.highlighted_index = std::max(0, (file_browser_.highlighted_index < 0 ? 0 : file_browser_.highlighted_index) - 1);
+                }
+                break;
+            case SDLK_DOWN:
+                if (row_count > 0)
+                {
+                    file_browser_.highlighted_index = std::min(row_count - 1, file_browser_.highlighted_index + 1);
+                }
+                break;
+            case SDLK_RETURN:
+            case SDLK_KP_ENTER:
+                if (file_browser_.highlighted_index >= 0)
+                {
+                    activate_file_browser_row_locked(file_browser_.highlighted_index);
+                }
+                break;
+            default:
+                return;
+            }
+
+            // Keep the highlighted row scrolled into view.
+            if (file_browser_.highlighted_index >= 0 && visible_rows > 0)
+            {
+                if (file_browser_.highlighted_index < file_browser_.scroll_offset)
+                {
+                    file_browser_.scroll_offset = file_browser_.highlighted_index;
+                }
+                else if (file_browser_.highlighted_index >= file_browser_.scroll_offset + visible_rows)
+                {
+                    file_browser_.scroll_offset = file_browser_.highlighted_index - visible_rows + 1;
+                }
+            }
+        }
+
         // Shared by the database browser's mouse buttons and arrow-key
         // handling so both paths move/refresh in exactly the same way.
         void step_database_game_locked(int direction)
@@ -1618,6 +2025,45 @@ namespace
             // mode_ is only safe to read under the lock, and the top bar's
             // row count depends on it, so layout is computed after locking.
             const Layout layout = compute_layout(width, height, mode_);
+
+            // The file picker is a modal overlay: while it's open, it owns
+            // all keyboard/mouse input instead of whatever settings field
+            // was being typed into underneath it.
+            if (file_browser_.open)
+            {
+                if (event.type == SDL_KEYDOWN)
+                {
+                    const auto fb_layout = compute_file_browser_layout(width, height);
+                    handle_file_browser_key_locked(event.key.keysym.sym, static_cast<int>(fb_layout.row_rects.size()));
+                }
+                else if (event.type == SDL_MOUSEWHEEL)
+                {
+                    const auto fb_layout = compute_file_browser_layout(width, height);
+                    const int row_count = file_browser_row_count(file_browser_);
+                    const int visible_rows = static_cast<int>(fb_layout.row_rects.size());
+                    const int max_offset = std::max(0, row_count - visible_rows);
+                    file_browser_.scroll_offset = std::clamp(file_browser_.scroll_offset - event.wheel.y * 2, 0, max_offset);
+                }
+                else if (event.type == SDL_MOUSEMOTION)
+                {
+                    const auto fb_layout = compute_file_browser_layout(width, height);
+                    file_browser_hover_index_ = -1;
+                    for (std::size_t i = 0; i < fb_layout.row_rects.size(); ++i)
+                    {
+                        if (point_in_rect(event.motion.x, event.motion.y, fb_layout.row_rects[i]))
+                        {
+                            file_browser_hover_index_ = file_browser_.scroll_offset + static_cast<int>(i);
+                            break;
+                        }
+                    }
+                }
+                else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
+                {
+                    const auto fb_layout = compute_file_browser_layout(width, height);
+                    handle_file_browser_click_locked(fb_layout, event.button.x, event.button.y);
+                }
+                return;
+            }
 
             if (event.type == SDL_TEXTINPUT)
             {
@@ -1684,6 +2130,14 @@ namespace
                     default:
                         break;
                     }
+                }
+                else if (mode_ == ChessGuiMode::settings && event.key.keysym.sym == SDLK_ESCAPE &&
+                         active_text_field_ == TextInputField::settings_value)
+                {
+                    // Same "unambiguous" goal as the click-away deselect
+                    // above, for keyboard users.
+                    active_text_field_ = TextInputField::none;
+                    settings_state_.selected_field_index = -1;
                 }
                 return;
             }
@@ -1773,6 +2227,11 @@ namespace
                             active_text_field_ = TextInputField::none;
                             settings_state_.selected_field_index = -1;
                         }
+                        else if (settings_state_.fields[i].is_path &&
+                                 point_in_rect(mouse_x, mouse_y, settings_browse_button_rect(field_rects[i])))
+                        {
+                            open_file_browser_locked(static_cast<int>(i));
+                        }
                         else
                         {
                             settings_state_.selected_field_index = static_cast<int>(i);
@@ -1780,6 +2239,13 @@ namespace
                         }
                         return;
                     }
+                    // Clicked somewhere in the panel but not on any field row
+                    // - deselect, so it's unambiguous that nothing is being
+                    // edited anymore (previously a stray click here did
+                    // nothing, silently leaving whatever field was active
+                    // still capturing keystrokes).
+                    active_text_field_ = TextInputField::none;
+                    settings_state_.selected_field_index = -1;
                     return;
                 }
                 else if (mode_ == ChessGuiMode::network_setup)
@@ -1996,6 +2462,8 @@ namespace
                              const ChessGuiSettingsState &settings_state,
                              const ChessGuiGameActionState &game_action_state,
                              const ChessGuiChatState &chat_state,
+                             const FileBrowserState &file_browser,
+                             int file_browser_hover_index,
                              playerColor local_player_color,
                              TextInputField active_text_field,
                              bool dragging,
@@ -2012,6 +2480,10 @@ namespace
             int height = 0;
             SDL_GetRendererOutputSize(renderer, &width, &height);
             const Layout layout = compute_layout(width, height, mode);
+            // A steady 1Hz blink for the text-input caret - fast enough to
+            // read as "alive" within a frame or two, slow enough not to be
+            // distracting.
+            const bool cursor_blink_on = (SDL_GetTicks() / 500) % 2 == 0;
 
             const SDL_Color background = make_color(16, 24, 30);
             const SDL_Color panel_bg = make_color(29, 43, 54);
@@ -2037,6 +2509,12 @@ namespace
             const SDL_Color button_disabled = make_color(64, 73, 81);
             const SDL_Color button_outline = make_color(124, 154, 177);
             const SDL_Color panel_outline = make_color(77, 100, 118);
+            // A field being actively typed into needs to read as unambiguously
+            // "you are typing here" at a glance - a warm accent that doesn't
+            // appear anywhere else in the (blue/gray) palette, used for both
+            // the focus outline and the blinking text cursor.
+            const SDL_Color focus_accent = make_color(255, 200, 80);
+            const SDL_Color overlay_backdrop = make_color(10, 14, 18, 200);
 
             set_draw_color(renderer, background);
             SDL_RenderClear(renderer);
@@ -2497,30 +2975,61 @@ namespace
                 const auto field_rects = compute_settings_field_rects(layout, static_cast<int>(settings_state.fields.size()));
                 for (std::size_t i = 0; i < field_rects.size(); ++i)
                 {
+                    const auto &field = settings_state.fields[i];
                     const bool active = active_text_field == TextInputField::settings_value &&
                                          settings_state.selected_field_index == static_cast<int>(i);
                     fill_rect(renderer, field_rects[i], active ? button_hover : menu_item_fill);
-                    draw_rect(renderer, field_rects[i], button_outline);
+                    draw_rect(renderer, field_rects[i], active ? focus_accent : button_outline);
+                    if (active)
+                    {
+                        // A second, inset outline reads as a deliberately
+                        // thicker/brighter border rather than relying on the
+                        // fill-color swap alone to say "you're typing here."
+                        const SDL_Rect inset{field_rects[i].x + 1, field_rects[i].y + 1,
+                                             std::max(0, field_rects[i].w - 2), std::max(0, field_rects[i].h - 2)};
+                        draw_rect(renderer, inset, focus_accent);
+                    }
 
-                    const auto &field = settings_state.fields[i];
                     const int text_size = std::min(13, field_rects[i].h - 8);
                     const int label_max_width = field_rects[i].w / 2;
                     const std::string label_text = elide_left(font_renderer, field.label, label_max_width, text_size);
                     font_renderer.draw_text(label_text, field_rects[i].x + 8, field_rects[i].y + (field_rects[i].h - text_size) / 2, text_size, label_color);
+
+                    // A path field's Browse button claims a fixed strip on
+                    // the right, so the value area (and the elision that
+                    // fits text into it) has to shrink to make room.
+                    int value_area_right = field_rects[i].x + field_rects[i].w - 10;
+                    if (field.is_path)
+                    {
+                        const SDL_Rect browse_rect = settings_browse_button_rect(field_rects[i]);
+                        value_area_right = browse_rect.x - 8;
+
+                        fill_rect(renderer, browse_rect, button_fill);
+                        draw_rect(renderer, browse_rect, button_outline);
+                        draw_text_centered(font_renderer, "Browse", browse_rect, std::min(12, browse_rect.h - 4), label_color);
+                    }
 
                     // Values (especially file paths) can be far wider than
                     // the row - elide from the left so the tail (the useful
                     // part of a path) stays visible instead of overflowing
                     // into the next row or past the panel edge.
                     const int label_width = font_renderer.measure_text(label_text, text_size).width;
-                    const int value_max_width = std::max(20, field_rects[i].w - label_width - 24);
+                    const int value_max_width = std::max(20, value_area_right - field_rects[i].x - label_width - 16);
                     const std::string value_text = elide_left(font_renderer, field.value, value_max_width, text_size);
                     const TextMetrics value_metrics = font_renderer.measure_text(value_text, text_size);
-                    font_renderer.draw_text(value_text,
-                                            field_rects[i].x + field_rects[i].w - value_metrics.width - 10,
-                                            field_rects[i].y + (field_rects[i].h - text_size) / 2,
-                                            text_size,
-                                            label_color);
+                    const int value_x = value_area_right - value_metrics.width;
+                    const int value_y = field_rects[i].y + (field_rects[i].h - text_size) / 2;
+                    font_renderer.draw_text(value_text, value_x, value_y, text_size, label_color);
+
+                    if (active && cursor_blink_on)
+                    {
+                        // Editing only ever appends/removes at the end of the
+                        // value (see pop_utf8_character), so the cursor
+                        // always belongs right after the last visible
+                        // character, never mid-string.
+                        const SDL_Rect cursor_rect{value_x + value_metrics.width + 2, value_y, 2, text_size};
+                        fill_rect(renderer, cursor_rect, focus_accent);
+                    }
                 }
 
                 {
@@ -2530,6 +3039,13 @@ namespace
                         ? "Save writes to config.json. Back discards unsaved changes."
                         : settings_state.status_message;
                     draw_wrapped_text(font_renderer, footer_message, footer_x, layout.footer_rect.y + 10, footer_max_width, 14, muted_label);
+                }
+
+                if (file_browser.open)
+                {
+                    render_file_browser(renderer, font_renderer, width, height, file_browser, file_browser_hover_index,
+                                         panel_bg, label_color, muted_label, button_hover, button_fill, button_outline,
+                                         focus_accent, overlay_backdrop);
                 }
             }
             else if (mode == ChessGuiMode::main_menu)
@@ -2717,6 +3233,8 @@ namespace
         int pressed_button_index_ = -1;
         int hovered_button_index_ = -1;
         TextInputField active_text_field_ = TextInputField::none;
+        FileBrowserState file_browser_{};
+        int file_browser_hover_index_ = -1; // transient mouse-hover row, like hovered_button_index_
         std::atomic<bool> running_{true};
         std::atomic<bool> open_{false};
         std::thread worker_;
