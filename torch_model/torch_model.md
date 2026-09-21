@@ -18,10 +18,13 @@ on real human games (below). [rl_training.md](rl_training.md) covers the
 second option, **reinforcement learning** via self-play against Stockfish
 - a from-scratch-friendly, no-dataset-needed alternative that trains the
 exact same [chess_cnn.py](fdq/chess_cnn.py) network class through a
-different training loop. Point `ml_model_path` at whichever one's export
-you want Mate to use; the C++ side can't tell the difference. A value head
-could be added later as a third ONNX output without breaking this
-contract, since the C++ side only reads the first two named outputs.
+different training loop. Point `model_a_path` and/or `model_b_path` at
+whichever export(s) you want Mate to use - it supports two independent
+models at once (e.g. this pipeline's export as one, rl_training.md's as
+the other), useful for having them play each other, or for specializing
+one per game phase; the C++ side can't tell how either was produced. A
+value head could be added later as a third ONNX output without breaking
+this contract, since the C++ side only reads the first two named outputs.
 
 ## 1) Data Preparation
 
@@ -215,5 +218,5 @@ from, 1 = to), never by name, matching `ChessCNN.forward()`'s fixed
 The exported model is then consumed by the C++ engine via ONNX Runtime;
 see [README.md](../README.md) for how to build Mate with ONNX support.
 
-- if the bundled model exists at `torch_model/trained_models/simpleNet_torchscript.onnx`, Mate auto-detects it - but that file predates this pipeline redesign (old 6-channel input, single delta-mask output, fixed batch of 256) and is now incompatible; ONNX inference will fail gracefully (a caught error, not a crash) until it's replaced with a model exported from this pipeline
-- otherwise set `ml_model_path` in `~/.mate/config.json` to your exported model
+- if `torch_model/trained_models/chessCNN_torchscript.onnx` exists, Mate auto-detects it into `model_a_path`
+- otherwise set `model_a_path` (or `model_b_path`) in `~/.mate/config.json` to your exported model - see the README's Optional ML Support section for the two-model-slot setup

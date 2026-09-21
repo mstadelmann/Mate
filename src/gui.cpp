@@ -89,15 +89,38 @@ namespace
         {ChessGuiActionType::open_settings, "Settings"},
     }};
 
-    constexpr std::array<ButtonSpec, 7> kButtons{{
-        {ChessGuiActionType::smart_move, "Smart"},
-        {ChessGuiActionType::random_move, "Random"},
-        {ChessGuiActionType::undo, "Undo"},
-        {ChessGuiActionType::ml_move, "ML Move"},
-        {ChessGuiActionType::list_moves, "Legal Moves"},
-        {ChessGuiActionType::write_db, "Save"},
-        {ChessGuiActionType::quit_game, "Quit"},
-    }};
+    // The in-game quick-action row. ML Move is 0, 1, or 2 buttons depending
+    // on which of config.json's model_a_path/model_b_path are actually set
+    // (see ChessGuiMlAvailability) - with only one configured, it's shown as
+    // a single plain "ML Move" button rather than a needlessly-labeled
+    // "ML Move A", since there's no ambiguity about which model that is.
+    std::vector<ButtonSpec> active_game_buttons(const ChessGuiMlAvailability &ml_availability)
+    {
+        std::vector<ButtonSpec> buttons{
+            {ChessGuiActionType::smart_move, "Smart"},
+            {ChessGuiActionType::random_move, "Random"},
+            {ChessGuiActionType::undo, "Undo"},
+        };
+
+        if (ml_availability.model_a && ml_availability.model_b)
+        {
+            buttons.push_back({ChessGuiActionType::ml_move_a, "ML Move A"});
+            buttons.push_back({ChessGuiActionType::ml_move_b, "ML Move B"});
+        }
+        else if (ml_availability.model_a)
+        {
+            buttons.push_back({ChessGuiActionType::ml_move_a, "ML Move"});
+        }
+        else if (ml_availability.model_b)
+        {
+            buttons.push_back({ChessGuiActionType::ml_move_b, "ML Move"});
+        }
+
+        buttons.push_back({ChessGuiActionType::list_moves, "Legal Moves"});
+        buttons.push_back({ChessGuiActionType::write_db, "Save"});
+        buttons.push_back({ChessGuiActionType::quit_game, "Quit"});
+        return buttons;
+    }
 
     constexpr std::array<PaletteSpec, 13> kEditorPalette{{
         {{pieceCode::pawn, playerColor::white}, "White Pawn"},
@@ -1343,7 +1366,7 @@ namespace
     // piece palette all live here (database browser and network setup lay
     // out their own button rows directly, since their click handling was
     // already self-contained).
-    std::vector<SDL_Rect> primary_top_bar_rects(const Layout &layout, ChessGuiMode mode)
+    std::vector<SDL_Rect> primary_top_bar_rects(const Layout &layout, ChessGuiMode mode, const ChessGuiMlAvailability &ml_availability)
     {
         switch (mode)
         {
@@ -1351,7 +1374,7 @@ namespace
             return layout_button_row(top_bar_row_rect(layout, 0, 1), static_cast<int>(kMenuItems.size()));
         case ChessGuiMode::local_game:
         case ChessGuiMode::network_game:
-            return layout_button_row(top_bar_row_rect(layout, 0, 1), static_cast<int>(kButtons.size()));
+            return layout_button_row(top_bar_row_rect(layout, 0, 1), static_cast<int>(active_game_buttons(ml_availability).size()));
         case ChessGuiMode::board_editor:
             return layout_button_row(top_bar_row_rect(layout, 0, 2), static_cast<int>(kEditorPalette.size()));
         case ChessGuiMode::settings:
@@ -1385,9 +1408,9 @@ namespace
         return -1;
     }
 
-    int menu_index_at(const Layout &layout, ChessGuiMode mode, int x, int y)
+    int menu_index_at(const Layout &layout, ChessGuiMode mode, int x, int y, const ChessGuiMlAvailability &ml_availability)
     {
-        return rect_index_at(primary_top_bar_rects(layout, mode), x, y);
+        return rect_index_at(primary_top_bar_rects(layout, mode, ml_availability), x, y);
     }
 
     int button_index_at(const Layout &layout, ChessGuiMode mode, int x, int y)
@@ -1604,6 +1627,18 @@ namespace
             return chat_state_;
         }
 
+        void set_ml_availability(const ChessGuiMlAvailability &availability) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ml_availability_ = availability;
+        }
+
+        ChessGuiMlAvailability ml_availability() const override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return ml_availability_;
+        }
+
         void set_local_player_color(playerColor color) override
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -1722,6 +1757,7 @@ namespace
                 ChessGuiSettingsState settings_state_copy;
                 ChessGuiGameActionState game_action_state_copy;
                 ChessGuiChatState chat_state_copy;
+                ChessGuiMlAvailability ml_availability_copy;
                 FileBrowserState file_browser_copy;
                 int file_browser_hover_index_copy = -1;
                 playerColor local_player_color_copy = playerColor::none;
@@ -1746,6 +1782,7 @@ namespace
                     settings_state_copy = settings_state_;
                     game_action_state_copy = game_action_state_;
                     chat_state_copy = chat_state_;
+                    ml_availability_copy = ml_availability_;
                     file_browser_copy = file_browser_;
                     file_browser_hover_index_copy = file_browser_hover_index_;
                     local_player_color_copy = local_player_color_;
@@ -1779,6 +1816,7 @@ namespace
                                 settings_state_copy,
                                 game_action_state_copy,
                                 chat_state_copy,
+                                ml_availability_copy,
                                 file_browser_copy,
                                 file_browser_hover_index_copy,
                                 local_player_color_copy,
@@ -2146,7 +2184,7 @@ namespace
             {
                 drag_mouse_x_ = event.motion.x;
                 drag_mouse_y_ = event.motion.y;
-                hovered_menu_index_ = menu_index_at(layout, mode_, event.motion.x, event.motion.y);
+                hovered_menu_index_ = menu_index_at(layout, mode_, event.motion.x, event.motion.y, ml_availability_);
                 hovered_button_index_ = button_index_at(layout, mode_, event.motion.x, event.motion.y);
                 return;
             }
@@ -2160,7 +2198,7 @@ namespace
             const int mouse_y = event.button.y;
             drag_mouse_x_ = mouse_x;
             drag_mouse_y_ = mouse_y;
-            hovered_menu_index_ = menu_index_at(layout, mode_, mouse_x, mouse_y);
+            hovered_menu_index_ = menu_index_at(layout, mode_, mouse_x, mouse_y, ml_availability_);
             hovered_button_index_ = button_index_at(layout, mode_, mouse_x, mouse_y);
 
             if (event.button.button != SDL_BUTTON_LEFT)
@@ -2181,14 +2219,15 @@ namespace
 
             if (event.type == SDL_MOUSEBUTTONDOWN)
             {
-                const int menu_index = menu_index_at(layout, mode_, mouse_x, mouse_y);
+                const int menu_index = menu_index_at(layout, mode_, mouse_x, mouse_y, ml_availability_);
                 if (menu_index >= 0)
                 {
                     bool clickable = (mode_ == ChessGuiMode::main_menu) || (mode_ == ChessGuiMode::board_editor) ||
                                       (mode_ == ChessGuiMode::settings);
                     if (!clickable && (mode_ == ChessGuiMode::local_game || mode_ == ChessGuiMode::network_game))
                     {
-                        clickable = game_button_enabled(mode_, kButtons[static_cast<std::size_t>(menu_index)].action);
+                        const auto buttons = active_game_buttons(ml_availability_);
+                        clickable = game_button_enabled(mode_, buttons[static_cast<std::size_t>(menu_index)].action);
                     }
                     if (clickable)
                     {
@@ -2305,7 +2344,7 @@ namespace
 
             if (pressed_menu_index_ >= 0)
             {
-                const int released_on = menu_index_at(layout, mode_, mouse_x, mouse_y);
+                const int released_on = menu_index_at(layout, mode_, mouse_x, mouse_y, ml_availability_);
                 if (released_on == pressed_menu_index_)
                 {
                     if (mode_ == ChessGuiMode::main_menu)
@@ -2314,9 +2353,10 @@ namespace
                     }
                     else if (mode_ == ChessGuiMode::local_game || mode_ == ChessGuiMode::network_game)
                     {
-                        if (game_button_enabled(mode_, kButtons[static_cast<std::size_t>(released_on)].action))
+                        const auto buttons = active_game_buttons(ml_availability_);
+                        if (game_button_enabled(mode_, buttons[static_cast<std::size_t>(released_on)].action))
                         {
-                            pending_actions_.push_back(ChessGuiAction{kButtons[static_cast<std::size_t>(released_on)].action, {'A', 1}, {'A', 1}});
+                            pending_actions_.push_back(ChessGuiAction{buttons[static_cast<std::size_t>(released_on)].action, {'A', 1}, {'A', 1}});
                         }
                     }
                     else if (mode_ == ChessGuiMode::board_editor)
@@ -2462,6 +2502,7 @@ namespace
                              const ChessGuiSettingsState &settings_state,
                              const ChessGuiGameActionState &game_action_state,
                              const ChessGuiChatState &chat_state,
+                             const ChessGuiMlAvailability &ml_availability,
                              const FileBrowserState &file_browser,
                              int file_browser_hover_index,
                              playerColor local_player_color,
@@ -2530,7 +2571,7 @@ namespace
             // already fully draw their own fill and outline.
             if (mode == ChessGuiMode::main_menu)
             {
-                const auto rects = primary_top_bar_rects(layout, mode);
+                const auto rects = primary_top_bar_rects(layout, mode, ml_availability);
                 for (std::size_t i = 0; i < rects.size(); ++i)
                 {
                     SDL_Color fill = menu_item_fill;
@@ -2550,11 +2591,12 @@ namespace
             }
             else if (mode == ChessGuiMode::local_game || mode == ChessGuiMode::network_game)
             {
-                const auto rects = primary_top_bar_rects(layout, mode);
+                const auto buttons = active_game_buttons(ml_availability);
+                const auto rects = primary_top_bar_rects(layout, mode, ml_availability);
                 for (std::size_t i = 0; i < rects.size(); ++i)
                 {
-                    const bool enabled = game_button_enabled(mode, kButtons[i].action);
-                    const bool is_quit = (kButtons[i].action == ChessGuiActionType::quit_game);
+                    const bool enabled = game_button_enabled(mode, buttons[i].action);
+                    const bool is_quit = (buttons[i].action == ChessGuiActionType::quit_game);
                     SDL_Color fill = button_fill;
                     if (!enabled)
                     {
@@ -2575,12 +2617,12 @@ namespace
 
                     fill_rect(renderer, rects[i], fill);
                     draw_rect(renderer, rects[i], button_outline);
-                    draw_text_centered(font_renderer, kButtons[i].label, rects[i], 18, label_color);
+                    draw_text_centered(font_renderer, buttons[i].label, rects[i], 18, label_color);
                 }
             }
             else if (mode == ChessGuiMode::board_editor)
             {
-                const auto palette_rects = primary_top_bar_rects(layout, mode);
+                const auto palette_rects = primary_top_bar_rects(layout, mode, ml_availability);
                 for (std::size_t i = 0; i < palette_rects.size(); ++i)
                 {
                     SDL_Color fill = same_piece(board_editor_state.selected_piece, kEditorPalette[i].piece) ? button_hover : menu_item_fill;
@@ -2678,7 +2720,7 @@ namespace
             }
             else if (mode == ChessGuiMode::settings)
             {
-                const auto rects = primary_top_bar_rects(layout, mode);
+                const auto rects = primary_top_bar_rects(layout, mode, ml_availability);
                 for (std::size_t i = 0; i < rects.size(); ++i)
                 {
                     SDL_Color fill = button_fill;
@@ -3217,6 +3259,7 @@ namespace
         ChessGuiSettingsState settings_state_{};
         ChessGuiGameActionState game_action_state_{};
         ChessGuiChatState chat_state_{};
+        ChessGuiMlAvailability ml_availability_{};
         playerColor local_player_color_ = playerColor::none;
         std::deque<ChessGuiAction> pending_actions_;
         bool initialized_ = false;

@@ -29,7 +29,8 @@ enum class ChessGuiActionType
     start_network_game,
     move_piece,
     smart_move,
-    ml_move,
+    ml_move_a,
+    ml_move_b,
     random_move,
     undo,
     list_moves,
@@ -131,6 +132,15 @@ struct ChessGuiChatState
     std::string pending_input;
 };
 
+// Whether config.json's model_a_path / model_b_path are actually set,
+// updated whenever config is loaded or saved - see main.cpp. Drives which
+// (if any) ML move button(s) the in-game screen shows: none, one, or both.
+struct ChessGuiMlAvailability
+{
+    bool model_a = false;
+    bool model_b = false;
+};
+
 struct ChessGuiAction
 {
     ChessGuiActionType type = ChessGuiActionType::none;
@@ -157,6 +167,8 @@ public:
     virtual ChessGuiGameActionState game_action_state() const = 0;
     virtual void set_chat_state(const ChessGuiChatState &state) = 0;
     virtual ChessGuiChatState chat_state() const = 0;
+    virtual void set_ml_availability(const ChessGuiMlAvailability &availability) = 0;
+    virtual ChessGuiMlAvailability ml_availability() const = 0;
     // The color the local player actually controls in the active network
     // game (resolved after the host/join handshake); playerColor::none
     // outside of network play.
@@ -272,6 +284,19 @@ inline void set_chess_gui_chat_state(ChessGui *gui, const ChessGuiChatState &sta
 inline ChessGuiChatState get_chess_gui_chat_state(ChessGui *gui)
 {
     return (gui != nullptr && gui->is_open()) ? gui->chat_state() : ChessGuiChatState{};
+}
+
+inline void set_chess_gui_ml_availability(ChessGui *gui, const ChessGuiMlAvailability &availability)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_ml_availability(availability);
+    }
+}
+
+inline ChessGuiMlAvailability get_chess_gui_ml_availability(ChessGui *gui)
+{
+    return (gui != nullptr && gui->is_open()) ? gui->ml_availability() : ChessGuiMlAvailability{};
 }
 
 #endif /* GUI_H */

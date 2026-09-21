@@ -269,9 +269,12 @@ fdq \
 	data.CHESS.args.train_batch_size=1
 ```
 
-Then set `ml_model_path` in `~/.mate/config.json` to the resulting file,
-exactly as you would for a supervised model - `src/chess_ML.cpp` cannot
-tell the difference, and doesn't need to.
+Then set `model_a_path` or `model_b_path` in `~/.mate/config.json` to the
+resulting file, exactly as you would for a supervised model -
+`src/chess_ML.cpp` cannot tell the difference, and doesn't need to. Mate
+supports two independent model slots at once (see the README's Optional ML
+Support section) - useful for having this RL model and the supervised one
+loaded simultaneously, e.g. to play them against each other.
 
 ## 6) What's deliberately left out (and why)
 

@@ -17,9 +17,22 @@
 
 namespace
 {
-    // ONNX Runtime environment and session, loaded on first use.
+    // ONNX Runtime environment and sessions, loaded on first use - one
+    // independent session per model slot, so model A and model B (config.h's
+    // model_a_path / model_b_path) can be loaded and run side by side, e.g.
+    // to have two models play each other or split by game phase.
     Ort::Env g_ort_env{ORT_LOGGING_LEVEL_WARNING, "mate-ml"};
-    std::unique_ptr<Ort::Session> g_ort_session;
+    std::array<std::unique_ptr<Ort::Session>, 2> g_ort_sessions;
+
+    char slot_label(MLModelSlot slot)
+    {
+        return slot == MLModelSlot::A ? 'A' : 'B';
+    }
+
+    const std::string &configured_model_path(MLModelSlot slot)
+    {
+        return slot == MLModelSlot::A ? model_a_path : model_b_path;
+    }
 
     // Expand a path that may start with '~' to an absolute path using $HOME.
     std::string expand_tilde(const std::string &path)
@@ -35,30 +48,36 @@ namespace
         return path;
     }
 
-    bool load_onnx_session_once()
+    bool load_onnx_session_once(MLModelSlot slot)
     {
-        if (g_ort_session)
+        std::unique_ptr<Ort::Session> &session = g_ort_sessions[static_cast<std::size_t>(slot)];
+        if (session)
         {
             return true;
         }
 
+        const std::string model_path = expand_tilde(configured_model_path(slot));
+        if (model_path.empty())
+        {
+            std::cerr << "[ML] No model path configured for model " << slot_label(slot) << "." << std::endl;
+            return false;
+        }
+
         try
         {
-            const std::string model_path = expand_tilde(ml_model_path);
             Ort::SessionOptions session_options;
             session_options.SetIntraOpNumThreads(1);
             // Use maximum graph optimization level provided by ONNX Runtime.
             session_options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
 
-            g_ort_session = std::make_unique<Ort::Session>(g_ort_env, model_path.c_str(), session_options);
-            std::cout << "[ML] Loaded ONNX model from: " << model_path << '\n';
+            session = std::make_unique<Ort::Session>(g_ort_env, model_path.c_str(), session_options);
+            std::cout << "[ML] Loaded ONNX model " << slot_label(slot) << " from: " << model_path << '\n';
         }
         catch (const Ort::Exception &e)
         {
-            const std::string model_path = expand_tilde(ml_model_path);
-            std::cerr << "[ML] Error loading ONNX model from " << model_path << "\n";
+            std::cerr << "[ML] Error loading ONNX model " << slot_label(slot) << " from " << model_path << "\n";
             std::cerr << e.what() << '\n';
-            g_ort_session.reset();
+            session.reset();
             return false;
         }
 
@@ -194,10 +213,12 @@ namespace
     // model was trained (supervised or otherwise), so any model exposing it
     // works here.
     bool run_onnx(const std::array<float, kNbInputChannels * 8 * 8> &input,
+                  MLModelSlot slot,
                   std::array<float, 64> &from_scores,
                   std::array<float, 64> &to_scores)
     {
-        if (!g_ort_session)
+        std::unique_ptr<Ort::Session> &session = g_ort_sessions[static_cast<std::size_t>(slot)];
+        if (!session)
         {
             return false;
         }
@@ -206,16 +227,16 @@ namespace
         {
             Ort::AllocatorWithDefaultOptions allocator;
 
-            if (g_ort_session->GetOutputCount() < 2)
+            if (session->GetOutputCount() < 2)
             {
-                std::cerr << "[ML] ONNX model exposes " << g_ort_session->GetOutputCount()
+                std::cerr << "[ML] ONNX model exposes " << session->GetOutputCount()
                           << " output(s); expected 2 (from_logits, to_logits)." << std::endl;
                 return false;
             }
 
-            auto input_name = g_ort_session->GetInputNameAllocated(0, allocator);
-            auto from_output_name = g_ort_session->GetOutputNameAllocated(0, allocator);
-            auto to_output_name = g_ort_session->GetOutputNameAllocated(1, allocator);
+            auto input_name = session->GetInputNameAllocated(0, allocator);
+            auto from_output_name = session->GetOutputNameAllocated(0, allocator);
+            auto to_output_name = session->GetOutputNameAllocated(1, allocator);
 
             std::array<int64_t, 4> input_shape{1, kNbInputChannels, 8, 8};
             Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
@@ -230,7 +251,7 @@ namespace
             const char *input_names[] = {input_name.get()};
             const char *output_names[] = {from_output_name.get(), to_output_name.get()};
 
-            auto output_tensors = g_ort_session->Run(
+            auto output_tensors = session->Run(
                 Ort::RunOptions{nullptr},
                 input_names,
                 &input_tensor,
@@ -247,7 +268,7 @@ namespace
             auto read_scores = [](Ort::Value &tensor, std::array<float, 64> &out) -> bool
             {
                 // Verify the element count before reading, since a
-                // mismatched/corrupt model (ml_model_path is
+                // mismatched/corrupt model (the model paths are
                 // config-controlled) would otherwise cause an
                 // out-of-bounds read here.
                 const size_t element_count = tensor.GetTensorTypeAndShapeInfo().GetElementCount();
@@ -360,20 +381,20 @@ namespace
 
 } // namespace
 
-bool chess::mlMove()
+bool chess::mlMove(MLModelSlot slot)
 {
-    if (!load_onnx_session_once())
+    if (!load_onnx_session_once(slot))
     {
-        std::cout << "[ML] Could not load ONNX model; aborting ML move." << std::endl;
+        std::cout << "[ML] Could not load ONNX model " << slot_label(slot) << "; aborting ML move." << std::endl;
         return false;
     }
 
     auto input = board_to_input(*this);
     std::array<float, 64> from_scores{};
     std::array<float, 64> to_scores{};
-    if (!run_onnx(input, from_scores, to_scores))
+    if (!run_onnx(input, slot, from_scores, to_scores))
     {
-        std::cout << "[ML] ONNX inference failed; aborting ML move." << std::endl;
+        std::cout << "[ML] ONNX inference failed (model " << slot_label(slot) << "); aborting ML move." << std::endl;
         return false;
     }
 
@@ -384,7 +405,7 @@ bool chess::mlMove()
     }
 
     mlMove.moved_by_whom = moved_by::ai;
-    std::cout << "[ML] Executing move: "
+    std::cout << "[ML] Executing move (model " << slot_label(slot) << "): "
               << mlMove.start_position.coord.file << mlMove.start_position.coord.rank
               << " -> "
               << mlMove.dest_position.coord.file << mlMove.dest_position.coord.rank << std::endl;

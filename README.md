@@ -129,8 +129,9 @@ cmake --build build --parallel
 Notes:
 
 - CMake must be able to find `onnxruntimeConfig.cmake` (see installation notes above)
-- if the bundled model exists at `torch_model/trained_models/simpleNet_torchscript.onnx`, Mate auto-detects it
-- otherwise set `ml_model_path` in `~/.mate/config.json` to a model exported from the current pipeline
+- Mate supports up to two independent ONNX models at once - model A and model B (`model_a_path` / `model_b_path` in `~/.mate/config.json`) - so two models can play against each other, or one can be swapped in for a particular phase of the game (e.g. one trained for openings, another for endgames); either, both, or neither may be set
+- if the bundled exports exist at `torch_model/trained_models/chessCNN_torchscript.onnx` and `chessRL_torchscript.onnx` (see [torch_model/torch_model.md](torch_model/torch_model.md) and [torch_model/rl_training.md](torch_model/rl_training.md)), Mate auto-detects them into model A and model B respectively when their config path is empty
+- the CLI and GUI only ever show an ML move option for a slot that's actually configured: no button/command if neither model is set, one if only one is, two (labeled A/B) if both are
 - ML moves work for both colors: the board is always encoded from the perspective of the side to move
 
 Model and training notes live in [torch_model/torch_model.md](torch_model/torch_model.md) (supervised learning on real games) and [torch_model/rl_training.md](torch_model/rl_training.md) (reinforcement learning via self-play against Stockfish, no dataset needed) - either produces a model Mate can use the same way.
@@ -149,7 +150,8 @@ Model and training notes live in [torch_model/torch_model.md](torch_model/torch_
 
 - `m`: enter a manual move like `E2 E4`
 - `s`: run the minimax engine
-- `p`: run an ML move when ML support is enabled
+- `p`: run an ML move with model A (only shown/accepted if model A is configured)
+- `o`: run an ML move with model B (only shown/accepted if model B is configured)
 - `r`: play a random legal move
 - `u`: undo the last move
 - `a`: list all legal moves
@@ -189,9 +191,10 @@ Mate stores its runtime configuration in `~/.mate/config.json`, created with def
 | `enable_debug_messages` | extra debug logging |
 | `db_path` | SQLite database path |
 | `network_port` | TCP port for host/join mode |
-| `ml_model_path` | ONNX model path |
+| `model_a_path` | ONNX model path, slot A |
+| `model_b_path` | ONNX model path, slot B |
 
-`db_path` and `ml_model_path` may use `~`; Mate expands both when loading the config. The 8x8 piece-square tables (`pawnEvalWhite`, `knightEvalBlack`, and so on) also live in this file but aren't exposed in the Settings menu - edit them directly if you want to retune the evaluation.
+`db_path`, `model_a_path`, and `model_b_path` may use `~`; Mate expands all three when loading the config. The 8x8 piece-square tables (`pawnEvalWhite`, `knightEvalBlack`, and so on) also live in this file but aren't exposed in the Settings menu - edit them directly if you want to retune the evaluation.
 
 ## Database
 

@@ -110,12 +110,12 @@ namespace
         }
     }
 
-    LoopInput wait_for_game_loop_input(ChessGui *gui, bool print_menu)
+    LoopInput wait_for_game_loop_input(ChessGui *gui, bool print_menu, bool ml_a_available, bool ml_b_available)
     {
         LoopInput input;
         if (print_menu)
         {
-            print_game_menu();
+            print_game_menu(ml_a_available, ml_b_available);
         }
 
         bool prompt_printed = print_menu;
@@ -545,7 +545,7 @@ namespace
     }
 
     // Field order here is meaningful and must match the parsing switch in
-    // the "settings_save" handler below - both walk the same 16 config.json
+    // the "settings_save" handler below - both walk the same 17 config.json
     // scalar settings the CLI's run_settings_menu() edits (see config.h);
     // the 8x8 piece-square tables aren't exposed in either UI.
     ChessGuiSettingsState build_gui_settings_state()
@@ -579,7 +579,8 @@ namespace
         add_bool("Debug messages", enable_debug_messages);
         add_string("Database path", db_path, true);
         add_int("Network port", network_port);
-        add_string("ML model path", ml_model_path, true);
+        add_string("ML model path (A)", model_a_path, true);
+        add_string("ML model path (B)", model_b_path, true);
         return state;
     }
 
@@ -662,7 +663,8 @@ namespace
             enable_debug_messages = (current.fields[12].value == "yes");
             db_path = current.fields[13].value;
             parse_int_field(14, network_port);
-            ml_model_path = current.fields[15].value;
+            model_a_path = current.fields[15].value;
+            model_b_path = current.fields[16].value;
 
             if (!invalid_labels.empty())
             {
@@ -685,6 +687,10 @@ namespace
                 ? ("Settings saved to " + get_config_file_path() + ".")
                 : "Failed to save settings.";
             set_chess_gui_settings_state(gui, current);
+            // So a model path added/removed here shows up as an ML move
+            // button appearing/disappearing immediately, without needing to
+            // restart the app.
+            set_chess_gui_ml_availability(gui, {!model_a_path.empty(), !model_b_path.empty()});
         }
     }
 
@@ -700,9 +706,13 @@ namespace
             cout << "Performing smart move..." << endl;
             game.performSmartMove();
             return true;
-        case GameMenuChoice::MLMove:
-            cout << "Performing ML move..." << endl;
-            game.mlMove();
+        case GameMenuChoice::MLMoveA:
+            cout << "Performing ML move (model A)..." << endl;
+            game.mlMove(MLModelSlot::A);
+            return true;
+        case GameMenuChoice::MLMoveB:
+            cout << "Performing ML move (model B)..." << endl;
+            game.mlMove(MLModelSlot::B);
             return true;
         case GameMenuChoice::RandomMove:
             cout << "Performing random move..." << endl;
@@ -733,7 +743,9 @@ namespace
             cout << "Quitting game and returning to main menu..." << endl;
             return false;
         default:
-            cout << "Invalid command. Available: m/M, s, r, u, a, l, w, q." << endl;
+            cout << "Invalid command. Available: m, s, p, o, r, u, a, l, w, h, q "
+                    "('p'/'o' only if model A/B is configured)."
+                 << endl;
             return true;
         }
     }
@@ -750,13 +762,16 @@ namespace
             return true;
         case ChessGuiActionType::smart_move:
             return handle_game_menu_choice(game, GameMenuChoice::SmartMove, showMenu);
-        case ChessGuiActionType::ml_move:
+        case ChessGuiActionType::ml_move_a:
+        case ChessGuiActionType::ml_move_b:
         {
+            const GameMenuChoice choice = (action.type == ChessGuiActionType::ml_move_a) ? GameMenuChoice::MLMoveA : GameMenuChoice::MLMoveB;
+            const char *slot_label = (action.type == ChessGuiActionType::ml_move_a) ? "A" : "B";
             const std::size_t moves_before = game.move_count();
-            const bool result = handle_game_menu_choice(game, GameMenuChoice::MLMove, showMenu);
+            const bool result = handle_game_menu_choice(game, choice, showMenu);
             const std::string message = (game.move_count() > moves_before)
-                ? ("ML move: " + describe_last_move(game))
-                : "ML move unavailable (see terminal for details).";
+                ? ("ML move (" + std::string(slot_label) + "): " + describe_last_move(game))
+                : (std::string("ML move (") + slot_label + ") unavailable (see terminal for details).");
             set_chess_gui_game_action_state(gui, {message});
             return result;
         }
@@ -826,6 +841,7 @@ int main(int argc, char *argv[])
         else
         {
             sync_chess_gui(gui.get(), game);
+            set_chess_gui_ml_availability(gui.get(), {!model_a_path.empty(), !model_b_path.empty()});
         }
     }
 
@@ -991,7 +1007,8 @@ namespace
         cout << " 13. Debug messages enabled: " << (enable_debug_messages ? "yes" : "no") << "\n";
         cout << " 14. Database path: " << db_path << "\n";
         cout << " 15. Network port: " << network_port << "\n";
-        cout << " 16. ML model path: " << (ml_model_path.empty() ? "(none)" : ml_model_path) << "\n";
+        cout << " 16. ML model path (A): " << (model_a_path.empty() ? "(none)" : model_a_path) << "\n";
+        cout << " 17. ML model path (B): " << (model_b_path.empty() ? "(none)" : model_b_path) << "\n";
         cout << "\nNote: the 8x8 positional evaluation tables (pawnEvalWhite, etc.) are\n"
                 "stored in config.json but are not editable here - edit the file\n"
                 "directly if you need to change those.\n";
@@ -1187,7 +1204,10 @@ void run_settings_menu()
             changed = prompt_int("Network port", network_port);
             break;
         case 16:
-            changed = prompt_string("ML model path", ml_model_path);
+            changed = prompt_string("ML model path (A)", model_a_path);
+            break;
+        case 17:
+            changed = prompt_string("ML model path (B)", model_b_path);
             break;
         default:
             cout << "Unknown option." << endl;
@@ -1213,13 +1233,15 @@ void game_loop(chess &game, ChessGui *gui)
     }
     game.init_game();
     bool showMenu = true;
+    const bool ml_a_available = !model_a_path.empty();
+    const bool ml_b_available = !model_b_path.empty();
 
     while (true)
     {
         game.detectCheckmate();
         sync_chess_gui(gui, game);
         game.printCurrentGame();
-        const LoopInput input = wait_for_game_loop_input(gui, showMenu);
+        const LoopInput input = wait_for_game_loop_input(gui, showMenu, ml_a_available, ml_b_available);
         showMenu = false;
 
         if (input.end_of_input)
@@ -1240,7 +1262,7 @@ void game_loop(chess &game, ChessGui *gui)
         }
 
         GameMenuChoice selection = GameMenuChoice::Help;
-        if (!try_parse_game_menu_command(input.cli_command, selection))
+        if (!try_parse_game_menu_command(input.cli_command, selection, ml_a_available, ml_b_available))
         {
             cout << "Unknown command." << endl;
             showMenu = true;

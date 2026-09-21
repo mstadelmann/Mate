@@ -284,7 +284,8 @@ bool use_AB_pruning = true;
 bool enable_debug_messages = false;
 std::string db_path = "~/.mate/games.db";
 int network_port = 5555;
-std::string ml_model_path;
+std::string model_a_path;
+std::string model_b_path;
 
 static std::string expandUserPath(const std::string &path)
 {
@@ -342,12 +343,12 @@ static bool fileExists(const std::string &path)
     return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
-static std::string detectDefaultModelPath()
+static std::string detectDefaultModelPath(const std::string &filename)
 {
     const std::string sourceDir = MATE_SOURCE_DIR;
     if (!sourceDir.empty())
     {
-        const std::string sourceCandidate = sourceDir + "/torch_model/trained_models/simpleNet_torchscript.onnx";
+        const std::string sourceCandidate = sourceDir + "/torch_model/trained_models/" + filename;
         if (fileExists(sourceCandidate))
             return sourceCandidate;
     }
@@ -355,11 +356,11 @@ static std::string detectDefaultModelPath()
     const std::string binaryDir = getBinaryDir();
     if (!binaryDir.empty())
     {
-        const std::string buildCandidate = binaryDir + "/../torch_model/trained_models/simpleNet_torchscript.onnx";
+        const std::string buildCandidate = binaryDir + "/../torch_model/trained_models/" + filename;
         if (fileExists(buildCandidate))
             return buildCandidate;
 
-        const std::string multiConfigCandidate = binaryDir + "/../../torch_model/trained_models/simpleNet_torchscript.onnx";
+        const std::string multiConfigCandidate = binaryDir + "/../../torch_model/trained_models/" + filename;
         if (fileExists(multiConfigCandidate))
             return multiConfigCandidate;
     }
@@ -370,10 +371,19 @@ static std::string detectDefaultModelPath()
 static void normalize_config_paths()
 {
     db_path = expandUserPath(db_path);
-    ml_model_path = expandUserPath(ml_model_path);
-    if (ml_model_path.empty())
+    model_a_path = expandUserPath(model_a_path);
+    model_b_path = expandUserPath(model_b_path);
+    // Auto-detect the two pipelines' own bundled exports (see
+    // torch_model/torch_model.md and torch_model/rl_training.md) so both
+    // slots are populated out of the box when both are present, without
+    // guessing which slot an unrelated pre-existing model belongs in.
+    if (model_a_path.empty())
     {
-        ml_model_path = detectDefaultModelPath();
+        model_a_path = detectDefaultModelPath("chessCNN_torchscript.onnx");
+    }
+    if (model_b_path.empty())
+    {
+        model_b_path = detectDefaultModelPath("chessRL_torchscript.onnx");
     }
 }
 
@@ -411,7 +421,8 @@ bool save_config_to_json()
     out << "  \"db_path\": \"" << db_path << "\",\n";
     out << "  \"enable_debug_messages\": " << (enable_debug_messages ? "true" : "false") << ",\n";
     out << "  \"network_port\": " << network_port << ",\n";
-    out << "  \"ml_model_path\": \"" << ml_model_path << "\",\n";
+    out << "  \"model_a_path\": \"" << model_a_path << "\",\n";
+    out << "  \"model_b_path\": \"" << model_b_path << "\",\n";
     auto writeArray = [&out](const char *name, double a[8][8])
     {
         out << "  \"" << name << "\": [\n";
@@ -600,7 +611,8 @@ bool load_config_from_json()
     findString("db_path", db_path);
     findBool("enable_debug_messages", enable_debug_messages);
     findInt("network_port", network_port);
-    findString("ml_model_path", ml_model_path);
+    findString("model_a_path", model_a_path);
+    findString("model_b_path", model_b_path);
 
     parseArray(content, "pawnEvalWhite", pawnEvalWhite);
     parseArray(content, "pawnEvalBlack", pawnEvalBlack);

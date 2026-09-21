@@ -63,6 +63,15 @@ enum class moved_by
     none
 };
 
+// Which configured ONNX model (config.h's model_a_path / model_b_path) an
+// ML move should use. Two independent slots let two models play against
+// each other, or let one be swapped in for a particular phase of the game.
+enum class MLModelSlot
+{
+    A,
+    B
+};
+
 typedef struct pieceStruct
 {
     pieceCode piece;
@@ -190,7 +199,7 @@ public:
     void executeMove(motionType);
     bool manualMove();
     bool randomMove();
-    bool mlMove();
+    bool mlMove(MLModelSlot slot);
     boardCoordinateType chessCoordinatesFromString(const string &);
     bool currentlyChecked();
     boardCoordinateType findKing();

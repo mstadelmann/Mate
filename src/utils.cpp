@@ -118,16 +118,29 @@ bool try_parse_main_menu_command(const std::string &cmd, MainMenuChoice &choice)
     }
 }
 
-GameMenuChoice GameMenu(bool print_menu)
+namespace
 {
-    // Build items from single source in utils.h to avoid duplication
-#define MAKE_ITEM(name, label) MenuItemGame{GameMenuChoice::name, label},
-    static const std::vector<MenuItemGame> kGameMenuItems = {GAME_MENU_ITEMS(MAKE_ITEM)};
-#undef MAKE_ITEM
+    // Only the two ML entries are ever conditionally hidden - every other
+    // command is always available, regardless of model configuration.
+    bool game_menu_item_visible(GameMenuChoice choice, bool ml_a_available, bool ml_b_available)
+    {
+        if (choice == GameMenuChoice::MLMoveA)
+        {
+            return ml_a_available;
+        }
+        if (choice == GameMenuChoice::MLMoveB)
+        {
+            return ml_b_available;
+        }
+        return true;
+    }
+} // namespace
 
+GameMenuChoice GameMenu(bool print_menu, bool ml_a_available, bool ml_b_available)
+{
     auto printOptions = [&]()
     {
-        print_game_menu();
+        print_game_menu(ml_a_available, ml_b_available);
     };
 
     if (print_menu)
@@ -157,7 +170,7 @@ GameMenuChoice GameMenu(bool print_menu)
         }
 
         GameMenuChoice choice = GameMenuChoice::Help;
-        if (try_parse_game_menu_command(cmd, choice))
+        if (try_parse_game_menu_command(cmd, choice, ml_a_available, ml_b_available))
         {
             if (choice == GameMenuChoice::Help)
             {
@@ -174,7 +187,7 @@ GameMenuChoice GameMenu(bool print_menu)
     }
 }
 
-void print_game_menu()
+void print_game_menu(bool ml_a_available, bool ml_b_available)
 {
     // Build items from single source in utils.h to avoid duplication
 #define MAKE_ITEM(name, label) MenuItemGame{GameMenuChoice::name, label},
@@ -184,12 +197,15 @@ void print_game_menu()
     cout << "Game Menu:" << endl;
     for (const auto &it : kGameMenuItems)
     {
-        cout << it.label << endl;
+        if (game_menu_item_visible(it.choice, ml_a_available, ml_b_available))
+        {
+            cout << it.label << endl;
+        }
     }
     cout << "Enter command: " << endl;
 }
 
-bool try_parse_game_menu_command(const std::string &cmd, GameMenuChoice &choice)
+bool try_parse_game_menu_command(const std::string &cmd, GameMenuChoice &choice, bool ml_a_available, bool ml_b_available)
 {
     if (cmd.empty())
     {
@@ -206,7 +222,18 @@ bool try_parse_game_menu_command(const std::string &cmd, GameMenuChoice &choice)
         choice = GameMenuChoice::SmartMove;
         return true;
     case 'p':
-        choice = GameMenuChoice::MLMove;
+        if (!ml_a_available)
+        {
+            return false;
+        }
+        choice = GameMenuChoice::MLMoveA;
+        return true;
+    case 'o':
+        if (!ml_b_available)
+        {
+            return false;
+        }
+        choice = GameMenuChoice::MLMoveB;
         return true;
     case 'r':
         choice = GameMenuChoice::RandomMove;
