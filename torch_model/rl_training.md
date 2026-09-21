@@ -88,7 +88,7 @@ all there is to it. No search tree, no opponent model, no replay buffer.
 | [fdq/chess_encoding.py](fdq/chess_encoding.py) | Board -> tensor encoding, shared with the supervised pipeline's evaluator (see [torch_model.md](torch_model.md)'s board encoding section - identical 16-channel, canonicalized representation). Also has `legal_move_candidates()`, used only by RL. |
 | [fdq/rl_self_play.py](fdq/rl_self_play.py) | The "environment" half: plays one game at a time, move by move, and returns what's needed for the update (see `GameTrajectory`). Has no fdq dependency - testable on its own. |
 | [fdq/train_rl.py](fdq/train_rl.py) | The "trainer" half: opens the opponent (an engine, or the built-in random mover), runs the epoch loop, plays batches of self-play games, computes the REINFORCE loss, and steps the optimizer. This is fdq's `train.path` entry point, playing the same role `train.py` does for the supervised pipeline. |
-| [fdq/chess_rl_p00.yaml](fdq/chess_rl_p00.yaml) | The FDQ experiment config for this pipeline - same `chessCNN` model definition as [chess_cnn_p00.yaml](fdq/chess_cnn_p00.yaml), pointed at `train_rl.py` instead of `train.py`, plus the self-play-specific settings (see section 4). |
+| [fdq/chess_rl_p00.yaml](fdq/chess_rl_p00.yaml) | The FDQ experiment config for this pipeline - same architecture as the supervised `chessCNN` model in [chess_cnn_p00.yaml](fdq/chess_cnn_p00.yaml), defined here under the key `chessRL` instead (so it's clear which pipeline produced a given checkpoint/export), pointed at `train_rl.py` instead of `train.py`, plus the self-play-specific settings (see section 4). |
 
 `chess_evaluator.py` (the supervised pipeline's `test.processor`) is reused
 unchanged - since both pipelines train the same `ChessCNN` with the same
@@ -303,7 +303,7 @@ just not needed to demonstrate the core RL idea, which is the goal here.
 Because both pipelines train the exact same `ChessCNN` class, an obvious
 next experiment - explicitly **not** built here since the from-scratch
 option was chosen for this version - would be to warm-start RL from a
-supervised checkpoint (`models.chessCNN.trained_model_path` in
+supervised checkpoint (`models.chessRL.trained_model_path` in
 [chess_rl_p00.yaml](fdq/chess_rl_p00.yaml)) rather than training from
 random weights: fine-tune an already-competent model with self-play
 instead of teaching the RL loop chess from zero. This mirrors how

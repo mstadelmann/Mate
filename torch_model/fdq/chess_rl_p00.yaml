@@ -12,11 +12,13 @@ mode:
   resume_chpt_path: null # RL trains from scratch (random init) - see torch_model/rl_training.md
 
 models:
-  chessCNN:
-    # Same architecture, same args, as the supervised pipeline
-    # (chess_cnn_p00.yaml) - this is what makes the two training methods
-    # interchangeable from the C++ engine's point of view: only how the
-    # weights were produced differs, not the model shape or ONNX contract.
+  chessRL:
+    # Same architecture, same args, as the supervised pipeline's "chessCNN"
+    # (chess_cnn_p00.yaml) - only the key name differs, so it's clear which
+    # model a given checkpoint/export came from. This is what makes the two
+    # training methods interchangeable from the C++ engine's point of view:
+    # only how the weights were produced differs, not the model shape or
+    # ONNX contract.
     path: "~/dev/Mate/torch_model/fdq/chess_cnn.py"
     class_name: "ChessCNN"
     args:

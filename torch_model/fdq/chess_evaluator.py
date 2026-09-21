@@ -8,7 +8,7 @@ from fdq.ui_functions import getIntInput
 from chess_encoding import array_to_board, board_to_array, canonical_index_to_coord
 
 
-def _evaluate_batch(experiment, batch, verbose: bool = False) -> Tuple[int, int]:
+def _evaluate_batch(experiment, model_name: str, batch, verbose: bool = False) -> Tuple[int, int]:
     """Evaluate a single (batch-size-1) example and return
     (correct_position, correct_move).
 
@@ -17,7 +17,7 @@ def _evaluate_batch(experiment, batch, verbose: bool = False) -> Tuple[int, int]
     - ``correct_position`` is 1 if at least one of the two squares matches.
     """
 
-    model = experiment.models["chessCNN"]
+    model = experiment.models[model_name]
 
     inputs = batch["inputs"]
     from_label = batch["from_label"]
@@ -52,7 +52,12 @@ def fdq_test(experiment):
         "- correct_position: at least one of the two predicted squares matches.\n"
     )
 
-    experiment.models["chessCNN"].eval()
+    # Looked up rather than hardcoded, since this evaluator is shared by both
+    # the supervised config (model key "chessCNN") and the RL one ("chessRL")
+    # - each config defines exactly one model, so its name is whatever key
+    # happens to be there.
+    model_name = next(iter(experiment.models))
+    experiment.models[model_name].eval()
     test_loader = experiment.data["CHESS"].test_data_loader
 
     accuracy = None
@@ -88,7 +93,7 @@ def fdq_test(experiment):
             nb_evaluated_moved += 1
 
             verbose = tmode == 2
-            c_pos, c_move = _evaluate_batch(experiment, batch, verbose=verbose)
+            c_pos, c_move = _evaluate_batch(experiment, model_name, batch, verbose=verbose)
             correct_positions += c_pos
             correct_moves += c_move
 
@@ -106,7 +111,7 @@ def fdq_test(experiment):
 
         infield = torch.from_numpy(board_to_array(board)).unsqueeze(0)
 
-        model = experiment.models["chessCNN"]
+        model = experiment.models[model_name]
         from_logits, to_logits = model(infield.to(experiment.device))
 
         top_from = torch.topk(from_logits.squeeze(0), k=3).indices.cpu().tolist()

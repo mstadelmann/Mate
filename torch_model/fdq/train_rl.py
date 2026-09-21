@@ -23,7 +23,7 @@ from rl_self_play import make_engine_move_getter, play_one_game, random_move_get
 
 
 def fdq_train(experiment: fdqExperiment) -> None:
-    """Train chessCNN via self-play against a fixed opponent, using
+    """Train chessRL via self-play against a fixed opponent, using
     REINFORCE (Monte Carlo policy gradient) - the simplest policy-gradient
     RL algorithm there is: play a game, then nudge every move the network
     made up (if it won) or down (if it lost), all by the same amount.
@@ -35,8 +35,8 @@ def fdq_train(experiment: fdqExperiment) -> None:
     """
     iprint("RL (self-play vs a fixed opponent) training")
 
-    model = experiment.models["chessCNN"]
-    optimizer = experiment.optimizers["chessCNN"]
+    model = experiment.models["chessRL"]
+    optimizer = experiment.optimizers["chessRL"]
     args = experiment.cfg.train.args
 
     games_per_epoch: int = args.get("games_per_epoch", 100)
