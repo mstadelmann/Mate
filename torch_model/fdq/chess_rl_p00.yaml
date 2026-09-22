@@ -93,5 +93,6 @@ test:
     nb_eval_games: 50
     max_plies_per_game: 200
     engine_command: "random"
+    # engine_command: "sunfish-uci" # tougher eval opponent than train.args' "random"
     engine_uci_options: {}
     engine_movetime_ms: 50

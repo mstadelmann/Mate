@@ -5,12 +5,16 @@ globals:
   project: Chess
   author: Marc
   comment: >
-    Same training as chess_rl_p00.yaml (vs "random"), but evaluated against
-    the tougher "sunfish-uci" instead - an honest check for whether it
-    generalizes beyond beating random, not just a harder test. Expect a
-    low win rate (even losing outright) until training itself moves up a
-    tier - see chess_rl_p02.yaml. Requires Sunfish (`pip install sunfish`).
+    Curriculum rung 2: trains against "sunfish-uci" instead of "random"
+    (see chess_rl_p00.yaml/chess_rl_p01.yaml for rung 1), evaluated against
+    the same opponent it trains on. Requires Sunfish (`pip install sunfish`)
+    for both training and testing.
+
+train:
+  args:
+    engine_command: "sunfish-uci" # training opponent; next curriculum rung after chess_rl_p00/p01 (random -> sunfish-uci -> stockfish)
 
 test:
   args:
-    engine_command: "sunfish-uci" # tougher eval opponent than train.args' "random"
+    # engine_command: "random" # test against random moves
+    engine_command: "sunfish-uci" # same tier as train.args' opponent - confirms it beats what it trained on
