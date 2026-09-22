@@ -288,15 +288,19 @@ blind spots.
 ## 5) Exporting to ONNX and using it in Mate
 
 Identical to the supervised pipeline's export flow
-([torch_model.md](torch_model.md) section 2.5) - just point `--config-name`
-at `chess_rl_p00_random` instead:
+([torch_model.md](torch_model.md) section 2.5): `mode.dump_model: true` is
+already set in `chess_rl_p00_random.yaml`, driven by its `model_dump:`
+section (`model_name: chessRL`, `input_source: CHESS` - see that section
+for why the RL configs point at their own `CHESS` entry directly instead
+of a separate `CHESS_EXPORT` one), so a normal training run already
+exports `chessRL_torchscript.onnx` at the end. To export without
+(re)training, e.g. from an existing checkpoint:
 
 ```bash
 fdq \
 	--config-path "$(pwd)/torch_model/fdq" \
 	--config-name chess_rl_p00_random \
-	mode.run_train=false mode.run_test_auto=false mode.dump_model=true \
-	data.CHESS.args.train_batch_size=1
+	mode.run_train=false mode.run_test_auto=false
 ```
 
 Then set `model_a_path` or `model_b_path` in `~/.mate/config.json` to the

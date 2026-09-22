@@ -11,7 +11,8 @@ mode:
   run_train: true
   run_test_interactive: false
   run_test_auto: true
-  dump_model: false
+  dump_model: true
+  dump_model_interactive: false
   run_inference: false
   print_model_summary: false
   resume_chpt_path: null # RL trains from scratch (random init) - see torch_model/rl_training.md
@@ -55,7 +56,10 @@ losses: null
 
 data:
   # unused for training (self-play generates its own games) - only needed
-  # so mode.dump_model has example data to trace an export from.
+  # so mode.dump_model has example data to trace an export from. Hence
+  # train_batch_size=1 below: model_dump reads its example straight out of
+  # this loader (see get_example_tensor_auto() in fdq's dump.py), and
+  # src/chess_ML.cpp always calls the model with a single board.
   CHESS:
     processor: "~/dev/Mate/torch_model/fdq/chess_preparator.py"
     args:
@@ -65,12 +69,12 @@ data:
       subset_train: 1.0
       subset_test: 1.0
       val_ratio: 0.1
-      pin_memory: true
-      num_workers: 4
-      train_batch_size: 256
-      val_batch_size: 256
+      pin_memory: false
+      num_workers: 0
+      train_batch_size: 1
+      val_batch_size: 1
       test_batch_size: 1
-      shuffle_train: true
+      shuffle_train: false
       shuffle_val: false
       shuffle_test: false
 
@@ -96,3 +100,15 @@ test:
     # engine_command: "sunfish-uci" # tougher eval opponent than train.args' "random"
     engine_uci_options: {}
     engine_movetime_ms: 50
+
+model_dump:
+  checkpoint: best_val
+  model_name: chessRL
+  input_source: CHESS
+  random_input: false
+  input_dtype: float32
+  onnx:
+    use_dynamo: false
+    opset_version: 12
+    input_names: ["board"]
+    output_names: ["from_logits", "to_logits"]

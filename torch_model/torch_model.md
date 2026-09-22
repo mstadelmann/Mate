@@ -44,7 +44,9 @@ for every ply (both colors), encode the canonicalized board plus the
 played move's (from, to) squares -> save two pickles (train/test).
 
 **Packages:** `chess`, `datasets`, `numpy`, `PyYAML` (see
-[torch_model/data_preparation/requirements.txt](data_preparation/requirements.txt)).
+[torch_model/fdq/requirements.txt](fdq/requirements.txt) - this script has
+no fdq dependency of its own, but shares the one `requirements.txt` for the
+whole `torch_model/` pipeline).
 
 ### Board encoding
 
@@ -81,7 +83,7 @@ promotion for ML moves, matching `chess::applyMove`'s own default.
 **Run**
 
 ```bash
-pip install -r torch_model/data_preparation/requirements.txt
+pip install -r torch_model/fdq/requirements.txt
 cd torch_model/data_preparation
 python3 generate_chess_tensor.py --config chess_tensor_config.yaml
 ```
@@ -122,7 +124,7 @@ env var needed afterward). Don't put the token in
 ## 2) Training with FDQ
 
 This project uses [FDQ (Fonduecaquelon)](https://github.com/mstadelmann/fonduecaquelon)
-v0.1.23 to manage the training loop, data loading and model checkpoints.
+>=0.1.25 to manage the training loop, data loading and model checkpoints.
 
 ```bash
 pip install -r torch_model/fdq/requirements.txt
@@ -214,33 +216,62 @@ only one.
 
 ### 2.5 Exporting to ONNX
 
-Use FDQ 0.1.23's interactive `dump_model` export flow (`mode.dump_model:
-true`). FDQ's exporter (`fdq/dump.py`) does **not** support a dynamic
-batch axis - it always bakes in whatever batch size its example input
-tensor has, which by default is `train_batch_size` (256 in
-`chess_cnn_p00.yaml`). Since [src/chess_ML.cpp](../src/chess_ML.cpp)
-always calls the model with a single board (batch=1), override the batch
-size for the export run so the two match:
+Requires fdq >=0.1.25 (see [requirements.txt](fdq/requirements.txt)),
+which added a non-interactive, config-driven `dump_model` flow (the older
+0.1.23 flow prompted interactively; that still exists as
+`mode.dump_model_interactive: true`, but every config here now sets
+`mode.dump_model: true` instead, so a plain training run also exports an
+ONNX file automatically at the end - no separate invocation needed).
+
+The `model_dump:` section at the bottom of `chess_cnn_p00.yaml` (and
+mirrored in `chess_fc_p00.yaml`/`chess_rl_p00_random.yaml`) drives it:
+
+```yaml
+model_dump:
+  checkpoint: best_val
+  model_name: chessCNN
+  input_source: CHESS_EXPORT
+  random_input: false
+  input_dtype: float32
+  onnx:
+    use_dynamo: false
+    opset_version: 12
+    input_names: ["board"]
+    output_names: ["from_logits", "to_logits"]
+```
+
+FDQ's exporter (`fdq/dump.py`) does **not** support a dynamic batch axis -
+it always bakes in whatever batch size its example input tensor has,
+taken from `experiment.data[input_source].train_data_loader`'s first
+batch. Since [src/chess_ML.cpp](../src/chess_ML.cpp) always calls the
+model with a single board (batch=1), `input_source` points at a *second*
+data entry, `CHESS_EXPORT` (same dataset, `train_batch_size: 1`) rather
+than the `CHESS` entry actually used for training (`train_batch_size:
+256`) - see the comment above `CHESS_EXPORT` in `chess_cnn_p00.yaml`. The
+RL configs don't need a second entry: their `CHESS` data section is
+already unused for training (self-play generates its own games), so it
+can just set `train_batch_size: 1` directly.
+
+`output_names` is set explicitly to `["from_logits", "to_logits"]`
+(`ChessCNN.forward()`'s fixed 2-tuple return order) rather than relying on
+the single-name default, so the exported graph's outputs are now
+correctly named - previously (FDQ 0.1.23's interactive flow, which only
+ever declared one output name) they showed up as e.g. `output`/`view_1`.
+Not that it matters to the C++ side either way:
+[src/chess_ML.cpp](../src/chess_ML.cpp) reads outputs by **index** (0 =
+from, 1 = to), never by name.
+
+To export without also (re)training, e.g. from an existing checkpoint:
 
 ```bash
 fdq \
 	--config-path "$(pwd)/torch_model/fdq" \
 	--config-name chess_cnn_p00 \
-	mode.run_train=false mode.run_test_auto=false mode.dump_model=true \
-	data.CHESS.args.train_batch_size=1
+	mode.run_train=false mode.run_test_auto=false
 ```
 
-Then pick `2) ONNX export` and `n` (non-dynamo) at the prompts - the
-non-dynamo path is what's been validated against the C++ side. The
-"Shape of sample tensor" prompt should read `torch.Size([1, 16, 8, 8])`
-before you confirm the export.
-
-FDQ's export call only declares one output name (`"output"`), so the two
-heads will show up in the file as e.g. `output` and `view_1` rather than
-`from_logits`/`to_logits` - harmless, since
-[src/chess_ML.cpp](../src/chess_ML.cpp) reads outputs by **index** (0 =
-from, 1 = to), never by name, matching `ChessCNN.forward()`'s fixed
-`(from_logits, to_logits)` return order.
+(`mode.dump_model` is already `true` in the config, so it doesn't need to
+be passed here - only `run_train`/`run_test_auto` need overriding.)
 
 The exported model is then consumed by the C++ engine via ONNX Runtime;
 see [README.md](../README.md) for how to build Mate with ONNX support.
