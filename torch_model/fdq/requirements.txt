@@ -10,3 +10,16 @@ onnxscript
 # and train_rl.py (board representation, legal moves, and - via its
 # chess.engine submodule - talking to Stockfish over UCI for RL training).
 chess==1.11.2
+
+# Pure-Python UCI engine used as the default RL training/eval opponent
+# (engine_command: "sunfish-uci") - see torch_model/rl_training.md section 3.
+sunfish==2026.1
+
+# stockfish==5.2.0
+# Stockfish (the other RL opponent tier, e.g. chess_rl_p03.yaml) is NOT a
+# pip package - the real engine is a separate compiled binary, not
+# installable via pip. The "stockfish" PyPI package is just a third-party
+# Python wrapper around that binary and isn't used by this code (we talk
+# UCI directly via the `chess` package above) - installing it would add an
+# unused dependency without actually providing Stockfish. See
+# torch_model/rl_training.md section 3 for how to actually install it.

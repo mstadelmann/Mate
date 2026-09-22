@@ -220,3 +220,80 @@ see [README.md](../README.md) for how to build Mate with ONNX support.
 
 - if `torch_model/trained_models/chessCNN_torchscript.onnx` exists, Mate auto-detects it into `model_a_path`
 - otherwise set `model_a_path` (or `model_b_path`) in `~/.mate/config.json` to your exported model - see the README's Optional ML Support section for the two-model-slot setup
+
+### 2.6 Troubleshooting: DataLoader worker crash (SIGILL in libtcl)
+
+**Symptom:** a CPU-only training run (no accelerator, so `num_workers > 0`
+DataLoader workers are separate forked processes) dies mid-epoch - often
+tens of minutes / dozens of epochs in, not on the first batch - with:
+
+```
+Tcl_AsyncDelete: async handler deleted by the wrong thread
+...
+RuntimeError: DataLoader worker (pid ...) is killed by signal: Illegal instruction.
+RuntimeError: DataLoader worker (pid(s) ...) exited unexpectedly
+```
+
+and the kernel log (`dmesg` / `journalctl -k`) shows, at the same
+timestamp:
+
+```
+kernel: traps: pt_data_worker[...] trap invalid opcode ip:... in libtcl9.0.so
+```
+
+**Root cause:** FDQ's own `fdq/misc.py` does `import matplotlib.pyplot as
+plt` at module import time (used for the ASCII train/val loss plots
+printed each epoch). This happens as a side effect of importing
+`fdq.experiment`, i.e. before FDQ ever loads this project's
+[train.py](fdq/train.py) - so it runs unconditionally, whether or not this
+project's code touches matplotlib itself. If matplotlib resolves to the
+**TkAgg** backend on the machine (the default when Tk is available and no
+backend is forced), importing `pyplot` initializes Tcl/Tk, which starts
+its own internal notifier thread in the main process.
+
+PyTorch's `DataLoader` workers use the default **fork** start method on
+Linux. Forking duplicates the process's memory but not its other threads,
+so each worker inherits a partially-initialized, broken copy of Tcl's
+threading state. Tcl is not fork-safe; a forked worker eventually touches
+that broken state (typically during worker teardown/respawn between
+epochs), prints the `Tcl_AsyncDelete` warning, then executes an invalid
+opcode - crashing the worker with `SIGILL`. This is a fork/Tcl
+interaction, not a hardware fault, a corrupt dataset, or a real
+`torch`/CPU-instruction incompatibility - confirm by checking `dmesg -T`
+for `trap invalid opcode ... libtcl` at the crash timestamp.
+
+**Fix 1 - force a non-GUI matplotlib backend via environment variable (no
+code changes):**
+
+```bash
+MPLBACKEND=Agg fdq \
+	--config-path "$(pwd)/torch_model/fdq" \
+	--config-name chess_cnn_p00 \
+	mode.run_train=true mode.run_test_auto=true mode.dump_model=false
+```
+
+This is read by matplotlib before any backend resolution happens, so it
+doesn't matter that `fdq.misc` imports `pyplot` before this project's own
+code ever runs.
+
+**Fix 2 - a thin wrapper launcher** that sets the backend before
+importing `fdq` at all, for anyone who wants this baked into how training
+is invoked rather than relying on remembering the env var:
+
+```python
+# torch_model/fdq/run.py
+import matplotlib
+matplotlib.use("Agg")
+
+from fdq.run_experiment import main
+
+if __name__ == "__main__":
+	main()
+```
+
+run as `python torch_model/fdq/run.py ...` (same Hydra overrides as
+`fdq` above) instead of the installed `fdq` console script. Setting the
+backend **inside [train.py](fdq/train.py)** does *not* work - by the time
+FDQ loads this project's `train.py`, `fdq.misc` has already imported
+`pyplot` with the default backend, since `fdq` is an installed
+third-party package (`site-packages`), not part of this repo.
