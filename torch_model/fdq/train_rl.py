@@ -17,7 +17,7 @@ import chess
 import chess.engine
 import torch
 from fdq.experiment import fdqExperiment
-from fdq.ui_functions import iprint
+from fdq.ui_functions import iprint, startProgBar
 
 from rl_self_play import make_engine_move_getter, play_one_game, random_move_getter
 
@@ -88,6 +88,7 @@ def fdq_train(experiment: fdqExperiment) -> None:
             wins = losses = draws = 0
 
             games_played = 0
+            pbar = startProgBar(games_per_epoch, "self-play...")
             while games_played < games_per_epoch:
                 batch_size = min(games_per_update, games_per_epoch - games_played)
 
@@ -140,6 +141,7 @@ def fdq_train(experiment: fdqExperiment) -> None:
                         game_losses.append(-game_return * mean_log_prob)
 
                 games_played += batch_size
+                pbar.update(games_played)
 
                 if not game_losses:
                     continue  # every game in this batch was a draw; nothing to update on
@@ -152,6 +154,8 @@ def fdq_train(experiment: fdqExperiment) -> None:
 
                 epoch_loss_sum += batch_loss.detach().item()
                 nb_updates += 1
+
+            pbar.finish()
 
             avg_loss = epoch_loss_sum / max(nb_updates, 1)
             win_rate = wins / games_per_epoch
