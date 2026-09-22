@@ -9,8 +9,9 @@
 #   - the supervised configs' .chessarray datasets already generated (see
 #     torch_model/torch_model.md section 1); chess_cnn_p01/chess_fc_p01 need
 #     the larger nbGames10000 dataset specifically.
-#   - chess_rl_p01/chess_rl_p02 need Sunfish installed (`pip install sunfish`)
-#     - see torch_model/rl_training.md section 3.
+#   - chess_rl_p01_sunfish needs Sunfish installed (`pip install sunfish`);
+#     chess_rl_p02_stockfish needs a real Stockfish binary - see
+#     torch_model/rl_training.md section 3 for both.
 #
 # A failed experiment does not stop the others - see the summary printed at
 # the end, and the per-experiment logs under logs/train_all_<timestamp>/.
@@ -26,9 +27,9 @@ EXPERIMENTS=(
 	chess_cnn_p01
 	chess_fc_p00
 	chess_fc_p01
-	chess_rl_p00
-	chess_rl_p01
-	chess_rl_p02
+	chess_rl_p00_random
+	chess_rl_p01_sunfish
+	chess_rl_p02_stockfish
 )
 
 if ! command -v fdq >/dev/null 2>&1; then

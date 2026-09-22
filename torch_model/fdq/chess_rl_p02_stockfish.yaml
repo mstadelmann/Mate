@@ -1,15 +1,16 @@
 defaults:
-  - chess_rl_p00
+  - chess_rl_p00_random
 
 globals:
   project: Chess
   author: Marc
   comment: >
     Curriculum rung 3: trains and evaluates against a real Stockfish
-    binary instead of Sunfish (see chess_rl_p02.yaml for rung 2), using its
-    "Skill Level" option (0-20) to start beatable rather than full-strength.
-    engine_command below points at this machine's pacman-installed binary -
-    adjust it if Stockfish lives elsewhere (see rl_training.md section 3).
+    binary instead of Sunfish (see chess_rl_p01_sunfish.yaml for rung 2),
+    using its "Skill Level" option (0-20) to start beatable rather than
+    full-strength. engine_command below points at this machine's
+    pacman-installed binary - adjust it if Stockfish lives elsewhere (see
+    rl_training.md section 3).
 
 train:
   args:

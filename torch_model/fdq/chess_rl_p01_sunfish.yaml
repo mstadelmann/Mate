@@ -1,18 +1,18 @@
 defaults:
-  - chess_rl_p00
+  - chess_rl_p00_random
 
 globals:
   project: Chess
   author: Marc
   comment: >
     Curriculum rung 2: trains against "sunfish-uci" instead of "random"
-    (see chess_rl_p00.yaml/chess_rl_p01.yaml for rung 1), evaluated against
+    (see chess_rl_p00_random.yaml for rung 1), evaluated against
     the same opponent it trains on. Requires Sunfish (`pip install sunfish`)
     for both training and testing.
 
 train:
   args:
-    engine_command: "sunfish-uci" # training opponent; next curriculum rung after chess_rl_p00/p01 (random -> sunfish-uci -> stockfish)
+    engine_command: "sunfish-uci" # training opponent; next curriculum rung after chess_rl_p00_random (random -> sunfish-uci -> stockfish)
 
 test:
   args:

@@ -89,7 +89,7 @@ all there is to it. No search tree, no opponent model, no replay buffer.
 | [fdq/rl_self_play.py](fdq/rl_self_play.py) | The "environment" half: plays one game at a time, move by move, and returns what's needed for the update (see `GameTrajectory`). Has no fdq dependency - testable on its own. |
 | [fdq/train_rl.py](fdq/train_rl.py) | The "trainer" half: opens the opponent (an engine, or the built-in random mover), runs the epoch loop, plays batches of self-play games, computes the REINFORCE loss, and steps the optimizer. This is fdq's `train.path` entry point, playing the same role `train.py` does for the supervised pipeline. |
 | [fdq/rl_evaluator.py](fdq/rl_evaluator.py) | This pipeline's own `test.processor`: plays evaluation games against a fixed opponent (no learning, no exploration) and reports the win rate. Deliberately **not** `chess_evaluator.py` - see section 4.5. |
-| [fdq/chess_rl_p00.yaml](fdq/chess_rl_p00.yaml) | The FDQ experiment config for this pipeline - same architecture as the supervised `chessCNN` model in [chess_cnn_p00.yaml](fdq/chess_cnn_p00.yaml), defined here under the key `chessRL` instead (so it's clear which pipeline produced a given checkpoint/export), pointed at `train_rl.py`/`rl_evaluator.py` instead of `train.py`/`chess_evaluator.py`, plus the self-play-specific settings (see section 4). |
+| [fdq/chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml) | The FDQ experiment config for this pipeline - same architecture as the supervised `chessCNN` model in [chess_cnn_p00.yaml](fdq/chess_cnn_p00.yaml), defined here under the key `chessRL` instead (so it's clear which pipeline produced a given checkpoint/export), pointed at `train_rl.py`/`rl_evaluator.py` instead of `train.py`/`chess_evaluator.py`, plus the self-play-specific settings (see section 4). |
 
 ### Why a fixed external opponent, and which one?
 
@@ -102,7 +102,7 @@ loop for either side to learn from, especially early on. Playing against
 a fixed external opponent instead gives the network something real to
 push against.
 
-`engine_command` in [chess_rl_p00.yaml](fdq/chess_rl_p00.yaml) picks the
+`engine_command` in [chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml) picks the
 opponent, and this project supports three tiers, meant to be used as a
 curriculum (start easy, move up once the network is actually beating the
 current one):
@@ -177,7 +177,7 @@ chmod +x ~/stockfish/stockfish-linux-x86-64-universal
 ```
 
 Then use that path directly as `engine_command` in
-[chess_rl_p00.yaml](fdq/chess_rl_p00.yaml), and set
+[chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml), and set
 `engine_uci_options: {"Skill Level": 0}` to actually use its weak mode.
 
 If you do have a package manager with root:
@@ -209,7 +209,7 @@ cd /home/marc/dev/Mate
 
 fdq \
 	--config-path "$(pwd)/torch_model/fdq" \
-	--config-name chess_rl_p00 \
+	--config-name chess_rl_p00_random \
 	mode.run_train=true mode.run_test_auto=false mode.dump_model=false
 ```
 
@@ -226,12 +226,12 @@ while the network is improving, since it depends on which games happened
 to be won/lost, not just "how confident/correct was each prediction") -
 the win/draw/loss rate is the more meaningful thing to watch over time.
 Once that win rate against `"random"` sits comfortably above 50% for a
-while, switch `engine_command` to `"sunfish-uci"` (section 3) for a
-tougher second stage - expect the win rate to drop back down sharply when
-you do, per section 2's measured caveat about Sunfish.
+while, move up to [chess_rl_p01_sunfish.yaml](fdq/chess_rl_p01_sunfish.yaml)
+(section 3) for a tougher second stage - expect the win rate to drop back
+down sharply when you do, per section 2's measured caveat about Sunfish.
 
 Config knobs worth knowing about (all in `train.args` in
-[chess_rl_p00.yaml](fdq/chess_rl_p00.yaml)):
+[chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml)):
 
 - `games_per_epoch` / `games_per_update`: how many self-play games make up
   one "epoch," and how many are averaged together before each gradient
@@ -289,12 +289,12 @@ blind spots.
 
 Identical to the supervised pipeline's export flow
 ([torch_model.md](torch_model.md) section 2.5) - just point `--config-name`
-at `chess_rl_p00` instead:
+at `chess_rl_p00_random` instead:
 
 ```bash
 fdq \
 	--config-path "$(pwd)/torch_model/fdq" \
-	--config-name chess_rl_p00 \
+	--config-name chess_rl_p00_random \
 	mode.run_train=false mode.run_test_auto=false mode.dump_model=true \
 	data.CHESS.args.train_batch_size=1
 ```
@@ -337,7 +337,7 @@ Because both pipelines train the exact same `ChessCNN` class, an obvious
 next experiment - explicitly **not** built here since the from-scratch
 option was chosen for this version - would be to warm-start RL from a
 supervised checkpoint (`models.chessRL.trained_model_path` in
-[chess_rl_p00.yaml](fdq/chess_rl_p00.yaml)) rather than training from
+[chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml)) rather than training from
 random weights: fine-tune an already-competent model with self-play
 instead of teaching the RL loop chess from zero. This mirrors how
 real-world systems commonly combine the two (pretrain by imitation, then
