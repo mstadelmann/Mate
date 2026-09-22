@@ -1,4 +1,4 @@
-chess==1.11.2
+chess==1.9.4
 datasets==3.2.0
 numpy>=2.0
 PyYAML==6.0.2

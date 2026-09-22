@@ -9,7 +9,9 @@ onnxscript
 # Used directly by chess_evaluator.py, chess_encoding.py, rl_self_play.py
 # and train_rl.py (board representation, legal moves, and - via its
 # chess.engine submodule - talking to Stockfish over UCI for RL training).
-chess==1.11.2
+# Pinned to 1.9.4, not the latest (1.11.2), because sunfish (below) pins
+# chess==1.9.4 exactly - see https://pypi.org/pypi/sunfish/json.
+chess==1.9.4
 
 # Pure-Python UCI engine used as the default RL training/eval opponent
 # (engine_command: "sunfish-uci") - see torch_model/rl_training.md section 3.
