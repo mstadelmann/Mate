@@ -2,10 +2,10 @@ globals:
   project: Chess
   author: Marc
   comment: >
-    train.args.engine_command "random" = training opponent (no engine, random legal moves).
-    test.args.engine_command "random" = evaluation opponent, set independently.
-    Curriculum rung 1: train and test against the same (weak) opponent -
-    confirms it beats what it trained on.
+    Curriculum rung 2: trains against "sunfish-uci" instead of "random"
+    (see chess_rl_p00.yaml/chess_rl_p01.yaml for rung 1), evaluated against
+    the same opponent it trains on. Requires Sunfish (`pip install sunfish`)
+    for both training and testing.
 
 mode:
   run_train: true
@@ -14,12 +14,10 @@ mode:
   dump_model: false
   run_inference: false
   print_model_summary: false
-  resume_chpt_path: null # RL trains from scratch (random init) - see torch_model/rl_training.md
+  resume_chpt_path: null
 
 models:
   chessRL:
-    # Same architecture as chess_cnn_p00.yaml's "chessCNN" - only the key
-    # name differs, so exports stay distinguishable.
     path: "~/dev/Mate/torch_model/fdq/chess_cnn.py"
     class_name: "ChessCNN"
     args:
@@ -45,9 +43,9 @@ train:
     games_per_update: 8 # games averaged together before each gradient step
     max_plies_per_game: 200 # safety cap; games rarely need this many plies
 
-    engine_command: "random"
+    engine_command: "sunfish-uci" # training opponent; next curriculum rung after chess_rl_p00/p01 (random -> sunfish-uci -> stockfish)
     engine_uci_options: {} # UCI setoption params; empty for "random"/Sunfish, e.g. {"Skill Level": 0} for Stockfish
-    engine_movetime_ms: 50 # per-move think time cap; ignored for "random"
+    engine_movetime_ms: 50 # per-move think time cap
 
 # must stay present (as null), not omitted - fdq crashes if this key is
 # missing entirely. Loss is computed directly in train_rl.py instead.
@@ -87,11 +85,11 @@ store:
   wandb_entity: "stmd"
 
 test:
-  processor: "~/dev/Mate/torch_model/fdq/rl_evaluator.py"
+  processor: "~/dev/Mate/torch_model/fdq/rl_evaluator.py" # not chess_evaluator.py - see rl_training.md section 4.5
   test_model: "best"
   args:
     nb_eval_games: 50
     max_plies_per_game: 200
-    engine_command: "random"
+    engine_command: "sunfish-uci" # same tier as train.args' opponent - confirms it beats what it trained on
     engine_uci_options: {}
     engine_movetime_ms: 50

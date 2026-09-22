@@ -88,12 +88,8 @@ all there is to it. No search tree, no opponent model, no replay buffer.
 | [fdq/chess_encoding.py](fdq/chess_encoding.py) | Board -> tensor encoding, shared with the supervised pipeline's evaluator (see [torch_model.md](torch_model.md)'s board encoding section - identical 16-channel, canonicalized representation). Also has `legal_move_candidates()`, used only by RL. |
 | [fdq/rl_self_play.py](fdq/rl_self_play.py) | The "environment" half: plays one game at a time, move by move, and returns what's needed for the update (see `GameTrajectory`). Has no fdq dependency - testable on its own. |
 | [fdq/train_rl.py](fdq/train_rl.py) | The "trainer" half: opens the opponent (an engine, or the built-in random mover), runs the epoch loop, plays batches of self-play games, computes the REINFORCE loss, and steps the optimizer. This is fdq's `train.path` entry point, playing the same role `train.py` does for the supervised pipeline. |
-| [fdq/chess_rl_p00.yaml](fdq/chess_rl_p00.yaml) | The FDQ experiment config for this pipeline - same architecture as the supervised `chessCNN` model in [chess_cnn_p00.yaml](fdq/chess_cnn_p00.yaml), defined here under the key `chessRL` instead (so it's clear which pipeline produced a given checkpoint/export), pointed at `train_rl.py` instead of `train.py`, plus the self-play-specific settings (see section 4). |
-
-`chess_evaluator.py` (the supervised pipeline's `test.processor`) is reused
-unchanged - since both pipelines train the same `ChessCNN` with the same
-from/to-square outputs, "how often does the model's top choice match a
-strong human's move" is still a meaningful (if RL-agnostic) diagnostic.
+| [fdq/rl_evaluator.py](fdq/rl_evaluator.py) | This pipeline's own `test.processor`: plays evaluation games against a fixed opponent (no learning, no exploration) and reports the win rate. Deliberately **not** `chess_evaluator.py` - see section 4.5. |
+| [fdq/chess_rl_p00.yaml](fdq/chess_rl_p00.yaml) | The FDQ experiment config for this pipeline - same architecture as the supervised `chessCNN` model in [chess_cnn_p00.yaml](fdq/chess_cnn_p00.yaml), defined here under the key `chessRL` instead (so it's clear which pipeline produced a given checkpoint/export), pointed at `train_rl.py`/`rl_evaluator.py` instead of `train.py`/`chess_evaluator.py`, plus the self-play-specific settings (see section 4). |
 
 ### Why a fixed external opponent, and which one?
 
@@ -254,6 +250,40 @@ Config knobs worth knowing about (all in `train.args` in
 - `engine_movetime_ms`: how long the engine is allowed to think per move.
   Keep it short - see section 2's explanation of why a beatable opponent
   matters here. Ignored for `"random"`.
+
+## 4.5) Evaluating a trained model (`mode.run_test_auto` / `run_test_interactive`)
+
+Running fdq's test mode against this config uses
+[rl_evaluator.py](fdq/rl_evaluator.py), **not**
+[chess_evaluator.py](fdq/chess_evaluator.py) (the supervised pipeline's
+evaluator) - this matters, and picking the wrong one gives a real but
+misleading number.
+
+`chess_evaluator.py` measures "does the model's predicted move exactly
+match what a strong human played" in a held-out position from the
+supervised dataset. That's the right check for the *supervised* model - it
+was trained to imitate those exact moves. It is close to meaningless for
+this RL model: nothing here ever trained it to imitate humans, only to win
+games against its training opponent. A move it picks can be perfectly
+reasonable, even winning, without matching what some Lichess player did in
+a similar-looking position - so don't be alarmed by a near-zero score
+there; it isn't measuring what you think it's measuring. (If you try it
+anyway: point `test.processor` back at `chess_evaluator.py`, but expect a
+number close to 0, not a sign that training failed.)
+
+`rl_evaluator.py` instead plays `nb_eval_games` full games against a fixed
+opponent - using the model's single best move each time
+(`play_one_game(..., greedy=True)`, not the exploratory sampling training
+uses) - and reports the win/draw/loss rate. That's the question that
+actually matters: does it win? Its own `engine_command`/`engine_uci_options`/
+`engine_movetime_ms` under `test.args` are intentionally **separate** from
+`train.args`' - evaluating against the exact opponent it trained against
+mostly tells you whether it overfit to that opponent's specific patterns.
+A more honest check is to move up a tier for evaluation (e.g. train
+against `"random"`, evaluate against `"sunfish-uci"`) - if the win rate
+against the tougher opponent is also climbing over successive checkpoints,
+that's real evidence of learning, not just memorizing one opponent's
+blind spots.
 
 ## 5) Exporting to ONNX and using it in Mate
 

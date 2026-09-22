@@ -44,20 +44,26 @@ class GameTrajectory:
     nb_plies: int = 0
 
 
-def select_network_move(model: torch.nn.Module, board: chess.Board, device: torch.device):
-    """Ask the policy network for one move, *sampled* (not argmax) from its
-    current belief over the board's legal moves, and return
-    (chosen_move, log_prob_of_that_move).
+def select_network_move(model: torch.nn.Module, board: chess.Board, device: torch.device, greedy: bool = False):
+    """Ask the policy network for one move over the board's legal moves,
+    and return (chosen_move, log_prob_of_that_move).
 
-    Why sample instead of always playing the network's top choice? Because
-    RL learns from trial and error: if the network always played its
-    current favorite move, it could never discover that some *other* move
-    it currently underrates is actually better. Sampling is how the network
-    keeps trying alternatives ("exploration") instead of only ever
-    reinforcing whatever it already (perhaps wrongly) believes is best.
-    `log_prob` is the log-probability the network assigned to the move that
-    was actually sampled - this is the quantity the REINFORCE update (see
-    train_rl.py) nudges up or down depending on whether the game was won.
+    By default (``greedy=False``) the move is *sampled*, not argmax'd, from
+    the network's current belief. Why sample instead of always playing the
+    network's top choice? Because RL learns from trial and error: if the
+    network always played its current favorite move, it could never
+    discover that some *other* move it currently underrates is actually
+    better. Sampling is how the network keeps trying alternatives
+    ("exploration") instead of only ever reinforcing whatever it already
+    (perhaps wrongly) believes is best. `log_prob` is the log-probability
+    the network assigned to the move that was actually sampled - this is
+    the quantity the REINFORCE update (see train_rl.py) nudges up or down
+    depending on whether the game was won.
+
+    ``greedy=True`` instead always plays the network's single top-scoring
+    move - appropriate when *evaluating* a trained model's actual playing
+    strength (see rl_evaluator.py), where you want its best guess, not a
+    deliberately-exploratory alternative.
     """
     candidates = legal_move_candidates(board)
 
@@ -81,7 +87,7 @@ def select_network_move(model: torch.nn.Module, board: chess.Board, device: torc
     # log-probability of whatever gets sampled - exactly the two things a
     # policy-gradient method needs.
     distribution = torch.distributions.Categorical(logits=move_scores)
-    chosen_idx = distribution.sample()
+    chosen_idx = torch.argmax(move_scores) if greedy else distribution.sample()
     log_prob = distribution.log_prob(chosen_idx)
 
     chosen_move, _, _ = candidates[int(chosen_idx.item())]
@@ -94,6 +100,7 @@ def play_one_game(
     network_plays_white: bool,
     device: torch.device,
     max_plies: int = 200,
+    greedy: bool = False,
 ) -> GameTrajectory:
     """Play one game, the network against `opponent_move_getter`, and
     return the network's trajectory (its move log-probs plus the final
@@ -104,6 +111,10 @@ def play_one_game(
     same way canonicalization does for the supervised model - the network
     itself has no notion of "White" or "Black", only "me" and "the
     opponent", via the same board_to_array() encoding used everywhere else.
+
+    ``greedy`` is passed straight through to select_network_move() - leave
+    it False during training (exploration matters), set it True for
+    evaluation (see rl_evaluator.py).
     """
     board = chess.Board()
     trajectory = GameTrajectory()
@@ -112,7 +123,7 @@ def play_one_game(
         network_to_move = (board.turn == chess.WHITE) == network_plays_white
 
         if network_to_move:
-            move, log_prob = select_network_move(model, board, device)
+            move, log_prob = select_network_move(model, board, device, greedy=greedy)
             trajectory.log_probs.append(log_prob)
         else:
             move = opponent_move_getter(board)

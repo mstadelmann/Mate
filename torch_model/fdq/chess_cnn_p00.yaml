@@ -27,7 +27,7 @@ models:
 train:
   path: "~/dev/Mate/torch_model/fdq/train.py"
   args:
-    epochs: 10
+    epochs: 40
     use_GPU: false
     use_AMP: false
     accumulate_grad_batches: 1
