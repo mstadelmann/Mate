@@ -183,8 +183,8 @@ Then use that path directly as `engine_command` in
 If you do have a package manager with root:
 
 ```bash
-# Arch Linux
-sudo pacman -S --needed stockfish
+# Arch Linux (AUR)
+yay -S stockfish
 
 # Ubuntu/Debian
 sudo apt update && sudo apt install -y stockfish

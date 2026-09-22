@@ -5,9 +5,8 @@ globals:
     Curriculum rung 3: trains and evaluates against a real Stockfish
     binary instead of Sunfish (see chess_rl_p02.yaml for rung 2), using its
     "Skill Level" option (0-20) to start beatable rather than full-strength.
-    Update engine_command below to your actual Stockfish path - see
-    torch_model/rl_training.md section 3 for install options (no root
-    needed: a downloaded static binary works fine).
+    engine_command below points at this machine's pacman-installed binary -
+    adjust it if Stockfish lives elsewhere (see rl_training.md section 3).
 
 mode:
   run_train: true
@@ -45,7 +44,7 @@ train:
     games_per_update: 8 # games averaged together before each gradient step
     max_plies_per_game: 200 # safety cap; games rarely need this many plies
 
-    engine_command: "~/stockfish/stockfish-linux-x86-64-universal" # <-- set to your actual Stockfish binary path
+    engine_command: "/usr/bin/stockfish"
     engine_uci_options: { "Skill Level": 0 } # 0 (weakest) - 20 (full strength); raise once the model reliably wins
     engine_movetime_ms: 50 # per-move think time cap
 
@@ -92,6 +91,6 @@ test:
   args:
     nb_eval_games: 50
     max_plies_per_game: 200
-    engine_command: "~/stockfish/stockfish-linux-x86-64-universal" # <-- same as train.args above; same tier check
+    engine_command: "/usr/bin/stockfish"
     engine_uci_options: { "Skill Level": 0 }
     engine_movetime_ms: 50
