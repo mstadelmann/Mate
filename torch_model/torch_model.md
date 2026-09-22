@@ -176,7 +176,7 @@ def fdq_train(experiment: fdqExperiment) -> None:
 Inside `fdq_train`:
 
 - `experiment.data["CHESS"]` provides `train_data_loader` and `val_data_loader` built by `chess_preparator.py`.
-- `experiment.models["chessCNN"]` is the instantiated PyTorch model, returning `(from_logits, to_logits)`.
+- `experiment.models[model_name]` is the instantiated PyTorch model, returning `(from_logits, to_logits)` - `model_name` comes from `train.args.model_name` (e.g. `"chessCNN"` in `chess_cnn_p00.yaml`, `"chessFC"` in `chess_fc_p00.yaml`), so the same `train.py` trains either architecture unchanged.
 - Per batch: run the model, compute `ce_from(from_logits, from_label) + ce_to(to_logits, to_label)`, backward, `experiment.update_gradients(...)`.
 - After each epoch, compute average train/val loss and call `experiment.on_epoch_end()` for logging, checkpointing and early stopping.
 
@@ -340,15 +340,17 @@ not to produce a strong engine:
   position, every hidden unit here has its own independent weight for each
   of the 1024 inputs - far more parameters, no translation invariance, and
   no built-in notion of which squares are adjacent.
-- **`models.chessCNN.args`** (`chess_fc_p00.yaml`): `nb_in_channels: 16`,
+- **`models.chessFC.args`** (`chess_fc_p00.yaml`): `nb_in_channels: 16`,
   `board_size: 8`, `hidden_dims` (widths of the dense hidden layers, e.g.
   `[1024, 512]`) in place of `conv_channels`/`kernel_size`. The backbone
   feeds two linear heads producing `from_logits`/`to_logits`, each
   `(N, 64)` - the same shape `ChessCNN` produces, so it's a drop-in
   replacement for training, testing and ONNX export.
-- The model dict key stays `chessCNN` even though it's the dense network -
-  [train.py](fdq/train.py) hardcodes `experiment.models["chessCNN"]`, so
-  only `path`/`class_name`/`args` actually point at `ChessFC`.
+- The model dict key is `chessFC`, not `chessCNN` - [train.py](fdq/train.py)
+  reads which key to train from `train.args.model_name` (see section 2.2),
+  so `chess_fc_p00.yaml` just sets `train.args.model_name: chessFC` and
+  reuses `train.py` as-is; no separate training script needed for a
+  different architecture.
 - Unlike `chess_cnn_p01.yaml`, this config is **not** written as
   `defaults: [chess_cnn_p00]`: FDQ instantiates models as
   `cls(**model_def.args)` (`experiment.py`) with no unused-kwarg

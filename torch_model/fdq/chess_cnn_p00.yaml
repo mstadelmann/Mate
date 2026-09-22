@@ -27,6 +27,7 @@ models:
 train:
   path: "~/dev/Mate/torch_model/fdq/train.py"
   args:
+    model_name: chessCNN
     epochs: 100
     use_GPU: true
     use_AMP: false

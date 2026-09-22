@@ -11,7 +11,9 @@ globals:
     because fdq instantiates models as `cls(**args)` (experiment.py) with
     no unused-kwarg filtering - merging onto chess_cnn_p00's model args
     would leak its CNN-only conv_channels/kernel_size keys into ChessFC's
-    constructor and crash.
+    constructor and crash. Model key is "chessFC" (not reused as
+    "chessCNN") for clarity - train.py picks it up via train.args.model_name
+    below, so the same train.py trains either architecture unchanged.
 
 mode:
   run_train: true
@@ -23,10 +25,7 @@ mode:
   resume_chpt_path: null
 
 models:
-  chessCNN:
-    # Model key stays "chessCNN" (not "chessFC") because train.py hardcodes
-    # experiment.models["chessCNN"] - only path/class_name/args below
-    # actually point at the dense network.
+  chessFC:
     path: "~/dev/Mate/torch_model/fdq/chess_fc.py"
     class_name: "ChessFC"
     args:
@@ -41,6 +40,7 @@ models:
 train:
   path: "~/dev/Mate/torch_model/fdq/train.py"
   args:
+    model_name: chessFC
     epochs: 100
     use_GPU: true
     use_AMP: false

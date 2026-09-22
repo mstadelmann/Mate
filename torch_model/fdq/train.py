@@ -1,4 +1,10 @@
-"""Training loop for the CHESS experiment using the fdq framework."""
+"""Training loop for the CHESS experiment using the fdq framework.
+
+Model-architecture-agnostic: `train.args.model_name` picks which entry of
+`models:` to train (e.g. "chessCNN" for chess_cnn_p00.yaml, "chessFC" for
+chess_fc_p00.yaml) - the loop itself only relies on the model returning
+(from_logits, to_logits), not on any particular architecture.
+"""
 
 import torch
 from fdq.experiment import fdqExperiment
@@ -14,7 +20,8 @@ def fdq_train(experiment: fdqExperiment) -> None:
     iprint("Default training")
 
     data = experiment.data["CHESS"]
-    model = experiment.models["chessCNN"]
+    model_name = experiment.cfg.train.args.model_name
+    model = experiment.models[model_name]
 
     # Determine the autocast device type from the experiment's device.
     device_type = getattr(getattr(experiment, "device", None), "type", "cpu")
@@ -46,7 +53,7 @@ def fdq_train(experiment: fdqExperiment) -> None:
                     loss_tensor.backward()
 
             experiment.update_gradients(
-                b_idx=nb_batch, loader_name="CHESS", model_name="chessCNN"
+                b_idx=nb_batch, loader_name="CHESS", model_name=model_name
             )
 
             train_loss_sum += loss_tensor.detach().item()
