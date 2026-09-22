@@ -89,6 +89,28 @@ python3 generate_chess_tensor.py --config chess_tensor_config.yaml
 This writes `<dataset>_nbGames{N}_minElo{E}_train.chessarray` and
 `..._test.chessarray` under `output_dir`.
 
+**Hugging Face authentication (optional)**
+
+Without a token, `huggingface_hub` prints:
+
+```
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+```
+
+Streaming still works unauthenticated - this only raises the rate limit /
+download speed. To silence it, put a Hugging Face access token
+(https://huggingface.co/settings/tokens) in the `HF_TOKEN` environment
+variable, either for the one run:
+
+```bash
+export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
+```
+
+or persisted across shells via `~/.bashrc` / `~/.zshrc`, or once via
+`huggingface-cli login` (stores it under `~/.cache/huggingface/token`, no
+env var needed afterward). Don't put the token in
+`chess_tensor_config.yaml` or commit it anywhere.
+
 **Notes**
 
 - `number_of_games` in the shipped config is intentionally small (a few
