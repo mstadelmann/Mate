@@ -1,6 +1,17 @@
 globals:
   project: Chess
   author: Marc
+  comment: >
+    Same training loop, data, losses and hyperparameters as
+    chess_cnn_p00.yaml, but a plain fully-connected network (chess_fc.py)
+    instead of a CNN - no convolutions, no weight sharing across board
+    squares. Purely to contrast the two architectures side by side; not
+    meant to produce a strong engine. Kept as a standalone file rather
+    than a `defaults: [chess_cnn_p00]` override (see chess_cnn_p01.yaml)
+    because fdq instantiates models as `cls(**args)` (experiment.py) with
+    no unused-kwarg filtering - merging onto chess_cnn_p00's model args
+    would leak its CNN-only conv_channels/kernel_size keys into ChessFC's
+    constructor and crash.
 
 mode:
   run_train: true
@@ -13,12 +24,15 @@ mode:
 
 models:
   chessCNN:
-    path: "~/dev/Mate/torch_model/fdq/chess_cnn.py"
-    class_name: "ChessCNN"
+    # Model key stays "chessCNN" (not "chessFC") because train.py hardcodes
+    # experiment.models["chessCNN"] - only path/class_name/args below
+    # actually point at the dense network.
+    path: "~/dev/Mate/torch_model/fdq/chess_fc.py"
+    class_name: "ChessFC"
     args:
       nb_in_channels: 16
-      conv_channels: [64, 64, 128, 128]
-      kernel_size: 3
+      board_size: 8
+      hidden_dims: [1024, 512]
     optimizer:
       class_name: "torch.optim.Adam"
       args:

@@ -159,6 +159,11 @@ pip install -r torch_model/fdq/requirements.txt
 
 Make sure all paths in [torch_model/fdq/chess_cnn_p00.yaml](fdq/chess_cnn_p00.yaml) match your local folders (especially `base_path` and the `.chessarray` filenames produced by step 1).
 
+Sibling configs, same training pipeline: [chess_cnn_p01.yaml](fdq/chess_cnn_p01.yaml)
+trains the same CNN on the larger `nbGames10000` dataset;
+[chess_fc_p00.yaml](fdq/chess_fc_p00.yaml) swaps the architecture for a
+plain fully-connected network - see section 2.7.
+
 ### 2.2 Training loop (fdq_train)
 
 The training procedure is implemented in [torch_model/fdq/train.py](fdq/train.py) as required by FDQ:
@@ -319,3 +324,48 @@ backend **inside [train.py](fdq/train.py)** does *not* work - by the time
 FDQ loads this project's `train.py`, `fdq.misc` has already imported
 `pyplot` with the default backend, since `fdq` is an installed
 third-party package (`site-packages`), not part of this repo.
+
+### 2.7 Architecture comparison: fully-connected variant (chess_fc_p00.yaml)
+
+[torch_model/fdq/chess_fc_p00.yaml](fdq/chess_fc_p00.yaml) runs the exact
+same data, losses, and training loop as `chess_cnn_p00.yaml`, but swaps
+the model for [torch_model/fdq/chess_fc.py](fdq/chess_fc.py)'s `ChessFC` -
+a plain fully-connected (dense) network, no convolutions at all. It's here
+purely to contrast against `ChessCNN` (this is an educational project),
+not to produce a strong engine:
+
+- The `(16, 8, 8)` board tensor is flattened to a 1024-value vector before
+  the first layer. Unlike the CNN's 3x3 kernels, which see a local
+  neighbourhood and reuse the same small set of weights at every board
+  position, every hidden unit here has its own independent weight for each
+  of the 1024 inputs - far more parameters, no translation invariance, and
+  no built-in notion of which squares are adjacent.
+- **`models.chessCNN.args`** (`chess_fc_p00.yaml`): `nb_in_channels: 16`,
+  `board_size: 8`, `hidden_dims` (widths of the dense hidden layers, e.g.
+  `[1024, 512]`) in place of `conv_channels`/`kernel_size`. The backbone
+  feeds two linear heads producing `from_logits`/`to_logits`, each
+  `(N, 64)` - the same shape `ChessCNN` produces, so it's a drop-in
+  replacement for training, testing and ONNX export.
+- The model dict key stays `chessCNN` even though it's the dense network -
+  [train.py](fdq/train.py) hardcodes `experiment.models["chessCNN"]`, so
+  only `path`/`class_name`/`args` actually point at `ChessFC`.
+- Unlike `chess_cnn_p01.yaml`, this config is **not** written as
+  `defaults: [chess_cnn_p00]`: FDQ instantiates models as
+  `cls(**model_def.args)` (`experiment.py`) with no unused-kwarg
+  filtering, so deep-merging onto `chess_cnn_p00`'s model args would leak
+  its CNN-only `conv_channels`/`kernel_size` keys into `ChessFC`'s
+  constructor and crash. `chess_fc_p00.yaml` is a full standalone file
+  instead.
+
+Run it the same way as section 2.3/2.4, just with the other config name:
+
+```bash
+fdq \
+	--config-path "$(pwd)/torch_model/fdq" \
+	--config-name chess_fc_p00 \
+	mode.run_train=true mode.run_test_auto=true mode.dump_model=false
+```
+
+Expect noticeably more parameters and likely worse/slower-converging
+accuracy than `chess_cnn_p00.yaml` at the same dataset size - that gap is
+the point of the comparison, not a bug.

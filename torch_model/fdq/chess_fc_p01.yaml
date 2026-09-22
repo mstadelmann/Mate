@@ -1,0 +1,21 @@
+defaults:
+  - chess_fc_p00
+
+globals:
+  project: Chess
+  author: Marc
+  comment: >
+    Same as chess_fc_p00.yaml, but trained on the larger 10k-game dataset
+    (nbGames10000) instead of the 2k one - see torch_model/torch_model.md
+    section 1 for how to generate it.
+
+data:
+  CHESS:
+    args:
+      train_set: "standard-chess-games_nbGames10000_minElo1800_train.chessarray"
+      test_set: "standard-chess-games_nbGames10000_minElo1800_test.chessarray"
+
+
+
+
+
