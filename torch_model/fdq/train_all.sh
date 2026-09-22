@@ -16,7 +16,14 @@
 # A failed experiment does not stop the others - see the summary printed at
 # the end, and the per-experiment logs under logs/train_all_<timestamp>/.
 #
-# Usage: torch_model/fdq/train_all.sh
+# Any arguments given are passed through as Hydra overrides to every `fdq`
+# call, overriding each config's own settings - e.g. to test-only every
+# experiment instead of training it:
+#   torch_model/fdq/train_all.sh mode.run_train=false mode.run_test_auto=true
+# or to smoke-test the whole batch with just 2 epochs each:
+#   torch_model/fdq/train_all.sh train.args.epochs=2
+#
+# Usage: torch_model/fdq/train_all.sh [hydra overrides...]
 
 set -uo pipefail
 
@@ -54,7 +61,7 @@ for exp in "${EXPERIMENTS[@]}"; do
 	echo "Training ${exp}  (log: ${log_file})"
 	echo "=================================================================="
 
-	if fdq --config-path "$SCRIPT_DIR" --config-name "$exp" 2>&1 | tee "$log_file"; then
+	if fdq --config-path "$SCRIPT_DIR" --config-name "$exp" "$@" 2>&1 | tee "$log_file"; then
 		succeeded+=("$exp")
 	else
 		echo "!! ${exp} failed - see ${log_file}" >&2
