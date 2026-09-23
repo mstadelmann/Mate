@@ -17,7 +17,7 @@ import torch
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import iprint, startProgBar
 
-from rl_self_play import make_opponent, play_greedy_games, play_one_game
+from rl_self_play import close_engines, make_opponents, play_games, play_greedy_games
 
 
 def fdq_train(experiment: fdqExperiment) -> None:
@@ -65,7 +65,14 @@ def fdq_train(experiment: fdqExperiment) -> None:
     # move - a genuinely beatable (if unambitious) bootstrap opponent that
     # needs no install of any kind, useful as an easier first curriculum
     # stage before switching to a real engine.
-    opponent_move_getter, engine = make_opponent(engine_command, engine_uci_options, engine_movetime_ms)
+    #
+    # One engine process per CPU core by default (train.args.nb_engines
+    # overrides), so the games of each update batch are answered in
+    # parallel - see play_games() in rl_self_play.py.
+    nb_engines = args.get("nb_engines", None)
+    opponent_move_getters, engines = make_opponents(
+        engine_command, engine_uci_options, engine_movetime_ms, nb_engines
+    )
 
     # Optional per-epoch validation against its *own* opponent (train.args.val),
     # e.g. train vs Stockfish Skill Level 5 but validate vs Skill Level 0, so
@@ -77,13 +84,14 @@ def fdq_train(experiment: fdqExperiment) -> None:
     val_nb_games: int = val_args.get("nb_games", 0)
     val_engine_command: str = val_args.get("engine_command", "random")
     val_max_plies: int = val_args.get("max_plies_per_game", max_plies_per_game)
-    val_engine = None
-    val_move_getter = None
+    val_engines = []
+    val_move_getters = None
     if val_nb_games > 0:
-        val_move_getter, val_engine = make_opponent(
+        val_move_getters, val_engines = make_opponents(
             val_engine_command,
             dict(val_args.get("engine_uci_options", {}) or {}),
             val_args.get("engine_movetime_ms", engine_movetime_ms),
+            nb_engines,
         )
 
     try:
@@ -108,21 +116,23 @@ def fdq_train(experiment: fdqExperiment) -> None:
                 # since a single lucky or unlucky moment can flip a whole
                 # game's result. Averaging several games' updates together
                 # gives a steadier, less noisy nudge to the network.
+                #
+                # All games of the batch are played at once (batched
+                # network forward passes, engines thinking in parallel) -
+                # they all use the same weights, as REINFORCE requires,
+                # since the update only happens after the whole batch.
                 game_losses = []
-                for game_idx in range(batch_size):
+                trajectories = play_games(
+                    model=model,
+                    opponent_move_getters=opponent_move_getters,
                     # Alternate colors so the one network learns to play
                     # both sides, mirroring canonicalization on the
                     # supervised side (see torch_model/torch_model.md).
-                    network_plays_white = (games_played + game_idx) % 2 == 0
-
-                    trajectory = play_one_game(
-                        model=model,
-                        opponent_move_getter=opponent_move_getter,
-                        network_plays_white=network_plays_white,
-                        device=experiment.device,
-                        max_plies=max_plies_per_game,
-                    )
-
+                    network_plays_white=[(games_played + game_idx) % 2 == 0 for game_idx in range(batch_size)],
+                    device=experiment.device,
+                    max_plies=max_plies_per_game,
+                )
+                for trajectory in trajectories:
                     if trajectory.result == "win":
                         wins += 1
                         game_return = 1.0
@@ -186,11 +196,11 @@ def fdq_train(experiment: fdqExperiment) -> None:
                 "loss_rate": loss_rate,
             }
 
-            if val_move_getter is not None:
+            if val_move_getters is not None:
                 model.eval()
                 val_wins, val_draws, val_losses = play_greedy_games(
                     model=model,
-                    opponent_move_getter=val_move_getter,
+                    opponent_move_getters=val_move_getters,
                     nb_games=val_nb_games,
                     device=experiment.device,
                     max_plies=val_max_plies,
@@ -220,7 +230,7 @@ def fdq_train(experiment: fdqExperiment) -> None:
             # otherwise against the training opponent. Draws count as
             # "not won", same as losses.
             experiment.trainLoss = avg_loss
-            if val_move_getter is not None:
+            if val_move_getters is not None:
                 experiment.valLoss = 1.0 - log_scalars["val_win_rate"]
             else:
                 experiment.valLoss = 1.0 - win_rate
@@ -230,7 +240,5 @@ def fdq_train(experiment: fdqExperiment) -> None:
             if experiment.check_early_stop():
                 break
     finally:
-        if engine is not None:
-            engine.quit()
-        if val_engine is not None:
-            val_engine.quit()
+        close_engines(engines)
+        close_engines(val_engines)

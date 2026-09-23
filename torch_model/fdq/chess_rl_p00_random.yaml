@@ -53,6 +53,7 @@ train:
     engine_command: "random"
     engine_uci_options: {} # UCI setoption params; empty for "random"/Sunfish, e.g. {"Skill Level": 0} for Stockfish
     engine_movetime_ms: 50 # per-move think time cap; ignored for "random"
+    nb_engines: null # parallel engine processes playing the train/val games; null = one per CPU core
 
     val:
       nb_games: 20

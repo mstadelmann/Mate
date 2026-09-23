@@ -1,5 +1,5 @@
 """Evaluation for the RL pipeline: play a batch of games against a fixed
-opponent (no learning, no exploration - see play_one_game(..., greedy=True))
+opponent (no learning, no exploration - see play_greedy_games())
 and report the win rate.
 
 This deliberately does NOT reuse chess_evaluator.py's "does the model's move
@@ -14,47 +14,31 @@ means something for an RL-trained policy is: does it win games?
 
 from typing import Tuple
 
-import torch
-
 from fdq.ui_functions import getIntInput
 
-from rl_self_play import make_opponent, play_one_game
+from rl_self_play import close_engines, make_opponents, play_greedy_games
 
 
 def _play_eval_games(
     experiment,
     model,
-    opponent_move_getter,
+    opponent_move_getters,
     nb_eval_games: int,
     max_plies_per_game: int,
     opponent_label: str,
 ) -> dict:
-    """Play `nb_eval_games` against `opponent_move_getter` and return/print
-    the win/draw/loss rates."""
-    wins = losses = draws = 0
-    with torch.no_grad():
-        for i in range(nb_eval_games):
-            # Alternate colors, same reasoning as training: the model
-            # should be evaluated on both, not just whichever it happens
-            # to play better.
-            network_plays_white = i % 2 == 0
-            trajectory = play_one_game(
-                model=model,
-                opponent_move_getter=opponent_move_getter,
-                network_plays_white=network_plays_white,
-                device=experiment.device,
-                max_plies=max_plies_per_game,
-                greedy=True,
-            )
-
-            if trajectory.result == "win":
-                wins += 1
-            elif trajectory.result == "loss":
-                losses += 1
-            else:
-                draws += 1
-
-            print(f"game {i + 1}/{nb_eval_games}: {wins} wins, {draws} draws, {losses} losses so far")
+    """Play `nb_eval_games` against the opponent(s), all at once (see
+    play_games() in rl_self_play.py), and return/print the win/draw/loss
+    rates. Colors alternate, same reasoning as training: the model should
+    be evaluated on both, not just whichever it happens to play better."""
+    print(f"Playing {nb_eval_games} games vs {opponent_label}...")
+    wins, draws, losses = play_greedy_games(
+        model=model,
+        opponent_move_getters=opponent_move_getters,
+        nb_games=nb_eval_games,
+        device=experiment.device,
+        max_plies=max_plies_per_game,
+    )
 
     win_rate = wins / nb_eval_games
     draw_rate = draws / nb_eval_games
@@ -135,12 +119,13 @@ def fdq_test(experiment) -> dict:
             _select_opponent_interactively()
         )
 
-    opponent_move_getter, engine = make_opponent(engine_command, engine_uci_options, engine_movetime_ms)
+    opponent_move_getters, engines = make_opponents(
+        engine_command, engine_uci_options, engine_movetime_ms, args.get("nb_engines", None)
+    )
 
     try:
         return _play_eval_games(
-            experiment, model, opponent_move_getter, nb_eval_games, max_plies_per_game, engine_command
+            experiment, model, opponent_move_getters, nb_eval_games, max_plies_per_game, engine_command
         )
     finally:
-        if engine is not None:
-            engine.quit()
+        close_engines(engines)

@@ -51,7 +51,7 @@ A few terms, since they're used throughout the code:
   **sample** a move from the policy's probability distribution instead of
   always taking the top one; occasionally trying an "unexpected" move is
   what lets the network discover it's actually good (or confirm it's bad).
-  See `select_network_move()` in [rl_self_play.py](fdq/rl_self_play.py).
+  See `select_network_moves()` in [rl_self_play.py](fdq/rl_self_play.py).
 - **Policy gradient / REINFORCE**: the actual learning rule. After a game,
   for every move the network made, nudge the network's weights so that
   move becomes *more* likely if the game was won, or *less* likely if it
@@ -281,7 +281,7 @@ number close to 0, not a sign that training failed.)
 
 `rl_evaluator.py` instead plays `nb_eval_games` full games against a fixed
 opponent - using the model's single best move each time
-(`play_one_game(..., greedy=True)`, not the exploratory sampling training
+(`play_greedy_games()`, not the exploratory sampling training
 uses) - and reports the win/draw/loss rate. That's the question that
 actually matters: does it win? Its own `engine_command`/`engine_uci_options`/
 `engine_movetime_ms` under `test.args` are intentionally **separate** from

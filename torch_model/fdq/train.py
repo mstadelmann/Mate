@@ -10,7 +10,7 @@ import torch
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import startProgBar, iprint
 
-from rl_self_play import make_opponent, play_greedy_games
+from rl_self_play import close_engines, make_opponents, play_greedy_games
 
 
 def fdq_train(experiment: fdqExperiment) -> None:
@@ -37,13 +37,16 @@ def fdq_train(experiment: fdqExperiment) -> None:
     games_nb: int = games_args.get("nb_games", 0)
     games_engine_command: str = games_args.get("engine_command", "random")
     games_max_plies: int = games_args.get("max_plies_per_game", 200)
-    games_engine = None
-    games_move_getter = None
+    games_engines = []
+    games_move_getters = None
     if games_nb > 0:
-        games_move_getter, games_engine = make_opponent(
+        # one engine process per CPU core by default, playing the games in
+        # parallel - see play_games() in rl_self_play.py.
+        games_move_getters, games_engines = make_opponents(
             games_engine_command,
             dict(games_args.get("engine_uci_options", {}) or {}),
             games_args.get("engine_movetime_ms", 50),
+            experiment.cfg.train.args.get("nb_engines", None),
         )
 
     try:
@@ -109,10 +112,10 @@ def fdq_train(experiment: fdqExperiment) -> None:
             # Logged to wandb/tensorboard by on_epoch_end() below (fdq adds
             # train_loss / val_loss / epoch itself).
             log_scalars = {}
-            if games_move_getter is not None:
+            if games_move_getters is not None:
                 wins, draws, losses = play_greedy_games(
                     model=model,
-                    opponent_move_getter=games_move_getter,
+                    opponent_move_getters=games_move_getters,
                     nb_games=games_nb,
                     device=experiment.device,
                     max_plies=games_max_plies,
@@ -132,5 +135,4 @@ def fdq_train(experiment: fdqExperiment) -> None:
             if experiment.check_early_stop():
                 break
     finally:
-        if games_engine is not None:
-            games_engine.quit()
+        close_engines(games_engines)
