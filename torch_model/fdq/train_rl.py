@@ -13,13 +13,11 @@ and the same C++ src/chess_ML.cpp consumer, work for either model - only
 how the weights are produced differs.
 """
 
-import chess
-import chess.engine
 import torch
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import iprint, startProgBar
 
-from rl_self_play import make_engine_move_getter, play_one_game, random_move_getter
+from rl_self_play import make_opponent, play_one_game
 
 
 def fdq_train(experiment: fdqExperiment) -> None:
@@ -67,16 +65,25 @@ def fdq_train(experiment: fdqExperiment) -> None:
     # move - a genuinely beatable (if unambitious) bootstrap opponent that
     # needs no install of any kind, useful as an easier first curriculum
     # stage before switching to a real engine.
-    engine = None
-    if engine_command == "random":
-        iprint("Opponent: uniformly random legal moves (no engine process).")
-        opponent_move_getter = random_move_getter
-    else:
-        iprint(f"Opening chess engine '{engine_command}' (uci options: {engine_uci_options or 'none'})...")
-        engine = chess.engine.SimpleEngine.popen_uci(engine_command)
-        if engine_uci_options:
-            engine.configure(engine_uci_options)
-        opponent_move_getter = make_engine_move_getter(engine, engine_movetime_ms / 1000.0)
+    opponent_move_getter, engine = make_opponent(engine_command, engine_uci_options, engine_movetime_ms)
+
+    # Optional per-epoch validation against its *own* opponent (train.args.val),
+    # e.g. train vs Stockfish Skill Level 5 but validate vs Skill Level 0, so
+    # progress stays visible even while the training opponent still wins
+    # nearly every game. Played greedily (the network's best move, no
+    # exploration) and without gradients - same as rl_evaluator.py does.
+    # Omit train.args.val (or set nb_games: 0) to skip validation entirely.
+    val_args = args.get("val", None) or {}
+    val_nb_games: int = val_args.get("nb_games", 0)
+    val_engine_command: str = val_args.get("engine_command", "random")
+    val_engine = None
+    val_move_getter = None
+    if val_nb_games > 0:
+        val_move_getter, val_engine = make_opponent(
+            val_engine_command,
+            dict(val_args.get("engine_uci_options", {}) or {}),
+            val_args.get("engine_movetime_ms", engine_movetime_ms),
+        )
 
     try:
         for epoch in range(experiment.start_epoch, experiment.nb_epochs):
@@ -169,24 +176,64 @@ def fdq_train(experiment: fdqExperiment) -> None:
                 f"({win_rate:.1%} / {draw_rate:.1%} / {loss_rate:.1%})"
             )
 
-            # fdq expects both a train and a val loss to track "best"
-            # checkpoints and drive early stopping. Self-play has no held
-            # out validation set (there's no fixed dataset to split), so we
-            # reuse the same policy loss for both - a documented stand-in,
-            # not a real train/val split.
-            experiment.trainLoss = avg_loss
-            experiment.valLoss = avg_loss
+            log_scalars = {
+                "win_rate": win_rate,
+                "draw_rate": draw_rate,
+                "loss_rate": loss_rate,
+            }
 
-            experiment.on_epoch_end(
-                log_scalars={
-                    "win_rate": win_rate,
-                    "draw_rate": draw_rate,
-                    "loss_rate": loss_rate,
-                }
-            )
+            if val_move_getter is not None:
+                model.eval()
+                val_wins = val_losses = val_draws = 0
+                with torch.no_grad():
+                    for game_idx in range(val_nb_games):
+                        trajectory = play_one_game(
+                            model=model,
+                            opponent_move_getter=val_move_getter,
+                            network_plays_white=game_idx % 2 == 0,
+                            device=experiment.device,
+                            max_plies=max_plies_per_game,
+                            greedy=True,
+                        )
+                        if trajectory.result == "win":
+                            val_wins += 1
+                        elif trajectory.result == "loss":
+                            val_losses += 1
+                        else:
+                            val_draws += 1
+
+                log_scalars["val_win_rate"] = val_wins / val_nb_games
+                log_scalars["val_draw_rate"] = val_draws / val_nb_games
+                log_scalars["val_loss_rate"] = val_losses / val_nb_games
+                iprint(
+                    f"Epoch {epoch} val vs {val_engine_command}: "
+                    f"{val_wins} wins, {val_draws} draws, {val_losses} losses "
+                    f"({log_scalars['val_win_rate']:.1%} / {log_scalars['val_draw_rate']:.1%} / "
+                    f"{log_scalars['val_loss_rate']:.1%})"
+                )
+
+            # fdq expects both a train and a val loss to track "best"
+            # checkpoints and drive early stopping. The REINFORCE policy
+            # loss is NOT usable for that: winning games push it up, losing
+            # games push it down, and its magnitude mostly tracks how
+            # confident the policy is (see rl_training.md) - so "lowest
+            # loss" would tend to pick one of the *worst* checkpoints.
+            # valLoss is therefore 1 - win rate: against the val opponent
+            # if train.args.val is enabled (greedy, cleanest signal),
+            # otherwise against the training opponent. Draws count as
+            # "not won", same as losses.
+            experiment.trainLoss = avg_loss
+            if val_move_getter is not None:
+                experiment.valLoss = 1.0 - log_scalars["val_win_rate"]
+            else:
+                experiment.valLoss = 1.0 - win_rate
+
+            experiment.on_epoch_end(log_scalars=log_scalars)
 
             if experiment.check_early_stop():
                 break
     finally:
         if engine is not None:
             engine.quit()
+        if val_engine is not None:
+            val_engine.quit()

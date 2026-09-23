@@ -50,6 +50,14 @@ train:
     engine_uci_options: {} # UCI setoption params; empty for "random"/Sunfish, e.g. {"Skill Level": 0} for Stockfish
     engine_movetime_ms: 50 # per-move think time cap; ignored for "random"
 
+    # per-epoch validation: greedy games vs a separate opponent, logged as
+    # val_win_rate / val_draw_rate / val_loss_rate. nb_games: 0 disables it.
+    val:
+      nb_games: 0
+      engine_command: "random"
+      engine_uci_options: {}
+      engine_movetime_ms: 50
+
 # must stay present (as null), not omitted - fdq crashes if this key is
 # missing entirely. Loss is computed directly in train_rl.py instead.
 losses: null

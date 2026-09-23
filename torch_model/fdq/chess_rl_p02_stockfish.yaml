@@ -14,12 +14,16 @@ globals:
 
 train:
   args:
-    engine_command: "/usr/bin/stockfish"
-    engine_uci_options: { "Skill Level": 0 } # 0 (weakest) - 20 (full strength); raise once the model reliably wins
+    engine_command: "/usr/games/stockfish"
+    engine_uci_options: { "Skill Level": 5 } # 0 (weakest) - 20 (full strength); raise once the model reliably wins
+    val: # per-epoch validation opponent, independent of the training one above
+      nb_games: 20
+      engine_command: "/usr/games/stockfish"
+      engine_uci_options: { "Skill Level": 0 }
 
 test:
   args:
     # engine_command: "random" # test against random moves
     # engine_command: "sunfish-uci" # test against sunfish-uci
-    engine_command: "/usr/bin/stockfish"
+    engine_command: "/usr/games/stockfish"
     engine_uci_options: { "Skill Level": 0 }

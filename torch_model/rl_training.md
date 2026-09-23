@@ -225,6 +225,14 @@ pipeline's cross-entropy loss (it can legitimately go up sometimes even
 while the network is improving, since it depends on which games happened
 to be won/lost, not just "how confident/correct was each prediction") -
 the win/draw/loss rate is the more meaningful thing to watch over time.
+For the same reason, fdq's `valLoss` (which picks the "best" checkpoint
+and drives early stopping) is set to `1 - win rate`, not the policy loss:
+against the `train.args.val` opponent if that's enabled (`nb_games > 0` -
+greedy games vs a separately configured opponent, e.g. an easier
+Stockfish Skill Level than the training one, logged as `val_win_rate`),
+otherwise against the training opponent. `trainLoss` stays the policy
+loss, so `best_train` checkpoints are *not* meaningful here - use
+`best_val`/`"best"`.
 Once that win rate against `"random"` sits comfortably above 50% for a
 while, move up to [chess_rl_p01_sunfish.yaml](fdq/chess_rl_p01_sunfish.yaml)
 (section 3) for a tougher second stage - expect the win rate to drop back

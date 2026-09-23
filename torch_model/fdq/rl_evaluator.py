@@ -12,32 +12,13 @@ on evaluation for the full explanation. The only question that actually
 means something for an RL-trained policy is: does it win games?
 """
 
-from typing import Optional, Tuple
+from typing import Tuple
 
-import chess.engine
 import torch
 
 from fdq.ui_functions import getIntInput
 
-from rl_self_play import MoveGetter, make_engine_move_getter, play_one_game, random_move_getter
-
-
-def _make_opponent(
-    engine_command: str, engine_uci_options: dict, engine_movetime_ms: int
-) -> Tuple[MoveGetter, Optional[chess.engine.SimpleEngine]]:
-    """Build the opponent move-getter for `engine_command`, plus the
-    underlying chess.engine.SimpleEngine to `quit()` afterwards (None for
-    "random", which needs no engine process).
-    """
-    if engine_command == "random":
-        print("Opponent: uniformly random legal moves.")
-        return random_move_getter, None
-
-    print(f"Opponent: '{engine_command}' (uci options: {engine_uci_options or 'none'})")
-    engine = chess.engine.SimpleEngine.popen_uci(engine_command)
-    if engine_uci_options:
-        engine.configure(engine_uci_options)
-    return make_engine_move_getter(engine, engine_movetime_ms / 1000.0), engine
+from rl_self_play import make_opponent, play_one_game
 
 
 def _play_eval_games(
@@ -154,7 +135,7 @@ def fdq_test(experiment) -> dict:
             _select_opponent_interactively()
         )
 
-    opponent_move_getter, engine = _make_opponent(engine_command, engine_uci_options, engine_movetime_ms)
+    opponent_move_getter, engine = make_opponent(engine_command, engine_uci_options, engine_movetime_ms)
 
     try:
         return _play_eval_games(

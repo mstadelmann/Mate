@@ -13,9 +13,10 @@ used standalone.
 
 import random
 from dataclasses import dataclass, field
-from typing import Callable, List
+from typing import Callable, List, Optional, Tuple
 
 import chess
+import chess.engine
 import torch
 
 from chess_encoding import board_to_array, legal_move_candidates
@@ -160,3 +161,22 @@ def make_engine_move_getter(engine: "chess.engine.SimpleEngine", movetime_second
         return engine.play(board, limit).move
 
     return get_move
+
+
+def make_opponent(
+    engine_command: str, engine_uci_options: dict, engine_movetime_ms: int
+) -> Tuple[MoveGetter, Optional["chess.engine.SimpleEngine"]]:
+    """Build the opponent move-getter for `engine_command`, plus the
+    underlying chess.engine.SimpleEngine to `quit()` afterwards (None for
+    "random", which needs no engine process). Shared by training,
+    per-epoch validation (both train_rl.py) and testing (rl_evaluator.py).
+    """
+    if engine_command == "random":
+        print("Opponent: uniformly random legal moves (no engine process).")
+        return random_move_getter, None
+
+    print(f"Opening chess engine '{engine_command}' (uci options: {engine_uci_options or 'none'})...")
+    engine = chess.engine.SimpleEngine.popen_uci(engine_command)
+    if engine_uci_options:
+        engine.configure(engine_uci_options)
+    return make_engine_move_getter(engine, engine_movetime_ms / 1000.0), engine
