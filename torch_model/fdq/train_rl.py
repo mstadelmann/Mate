@@ -17,7 +17,7 @@ import torch
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import iprint, startProgBar
 
-from rl_self_play import make_opponent, play_one_game
+from rl_self_play import make_opponent, play_greedy_games, play_one_game
 
 
 def fdq_train(experiment: fdqExperiment) -> None:
@@ -76,6 +76,7 @@ def fdq_train(experiment: fdqExperiment) -> None:
     val_args = args.get("val", None) or {}
     val_nb_games: int = val_args.get("nb_games", 0)
     val_engine_command: str = val_args.get("engine_command", "random")
+    val_max_plies: int = val_args.get("max_plies_per_game", max_plies_per_game)
     val_engine = None
     val_move_getter = None
     if val_nb_games > 0:
@@ -177,6 +178,9 @@ def fdq_train(experiment: fdqExperiment) -> None:
             )
 
             log_scalars = {
+                "wins": wins,
+                "draws": draws,
+                "losses": losses,
                 "win_rate": win_rate,
                 "draw_rate": draw_rate,
                 "loss_rate": loss_rate,
@@ -184,24 +188,17 @@ def fdq_train(experiment: fdqExperiment) -> None:
 
             if val_move_getter is not None:
                 model.eval()
-                val_wins = val_losses = val_draws = 0
-                with torch.no_grad():
-                    for game_idx in range(val_nb_games):
-                        trajectory = play_one_game(
-                            model=model,
-                            opponent_move_getter=val_move_getter,
-                            network_plays_white=game_idx % 2 == 0,
-                            device=experiment.device,
-                            max_plies=max_plies_per_game,
-                            greedy=True,
-                        )
-                        if trajectory.result == "win":
-                            val_wins += 1
-                        elif trajectory.result == "loss":
-                            val_losses += 1
-                        else:
-                            val_draws += 1
+                val_wins, val_draws, val_losses = play_greedy_games(
+                    model=model,
+                    opponent_move_getter=val_move_getter,
+                    nb_games=val_nb_games,
+                    device=experiment.device,
+                    max_plies=val_max_plies,
+                )
 
+                log_scalars["val_wins"] = val_wins
+                log_scalars["val_draws"] = val_draws
+                log_scalars["val_losses"] = val_losses
                 log_scalars["val_win_rate"] = val_wins / val_nb_games
                 log_scalars["val_draw_rate"] = val_draws / val_nb_games
                 log_scalars["val_loss_rate"] = val_losses / val_nb_games

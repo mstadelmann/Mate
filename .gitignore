@@ -7,3 +7,4 @@ ressources
 */*/__pycache__
 outputs
 torch_model/fdq/logs/
+wandb_keys.yaml

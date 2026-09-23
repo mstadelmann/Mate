@@ -12,6 +12,9 @@
 #   - chess_rl_p01_sunfish needs Sunfish installed (`pip install sunfish`);
 #     chess_rl_p02_stockfish needs a real Stockfish binary - see
 #     torch_model/rl_training.md section 3 for both.
+#   - wandb_keys.yaml (gitignored, next to this script) with
+#     store.wandb_key: every experiment inherits it and logs train/val loss
+#     and wins/draws/losses per epoch to wandb (project "Chess", entity "stmd").
 #
 # A failed experiment does not stop the others - see the summary printed at
 # the end, and the per-experiment logs under logs/train_all_<timestamp>/.

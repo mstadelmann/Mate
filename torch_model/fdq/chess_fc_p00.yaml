@@ -1,3 +1,7 @@
+defaults:
+  - wandb_keys
+  - _self_
+
 globals:
   project: Chess
   author: Marc
@@ -42,13 +46,20 @@ train:
   path: "~/dev/Mate/torch_model/fdq/train.py"
   args:
     model_name: chessFC
-    epochs: 100
+    epochs: 200
     use_GPU: true
     use_AMP: false
     accumulate_grad_batches: 1
     early_stop_val_loss: 5
     early_stop_train_loss: 5
     early_stop_nan: 5
+
+    val:
+      nb_games: 20
+      max_plies_per_game: 200
+      engine_command: "random"
+      engine_uci_options: {}
+      engine_movetime_ms: 50
 
 losses:
   ce_from:
@@ -109,7 +120,7 @@ store:
   save_best_train_model: true
   checkpoint_frequency: 2
   use_tensorboard: false
-  use_wandb: false
+  use_wandb: true # logs train_loss, val_loss and wins/draws/losses per epoch
   wandb_project: "Chess"
   wandb_entity: "stmd"
 

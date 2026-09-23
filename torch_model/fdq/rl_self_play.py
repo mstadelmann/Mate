@@ -143,6 +143,38 @@ def play_one_game(
     return trajectory
 
 
+def play_greedy_games(
+    model: torch.nn.Module,
+    opponent_move_getter: MoveGetter,
+    nb_games: int,
+    device: torch.device,
+    max_plies: int = 200,
+) -> Tuple[int, int, int]:
+    """Play `nb_games` greedy games (no exploration, no gradients) against
+    `opponent_move_getter`, alternating colors, and return (wins, draws,
+    losses). Used for per-epoch validation by both train_rl.py and the
+    supervised train.py - works for either model, since both share the
+    same board_to_array() encoding and (from_logits, to_logits) output."""
+    wins = draws = losses = 0
+    with torch.no_grad():
+        for game_idx in range(nb_games):
+            trajectory = play_one_game(
+                model=model,
+                opponent_move_getter=opponent_move_getter,
+                network_plays_white=game_idx % 2 == 0,
+                device=device,
+                max_plies=max_plies,
+                greedy=True,
+            )
+            if trajectory.result == "win":
+                wins += 1
+            elif trajectory.result == "loss":
+                losses += 1
+            else:
+                draws += 1
+    return wins, draws, losses
+
+
 def random_move_getter(board: chess.Board) -> chess.Move:
     """Trivial opponent used only for local testing of the self-play loop
     itself, without needing a real chess engine installed. Never used
