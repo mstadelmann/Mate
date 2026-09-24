@@ -15,6 +15,7 @@ enum class ChessGuiMode
     board_editor,
     database_browser,
     network_setup,
+    settings,
     busy
 };
 
@@ -28,7 +29,8 @@ enum class ChessGuiActionType
     start_network_game,
     move_piece,
     smart_move,
-    ml_move,
+    ml_move_a,
+    ml_move_b,
     random_move,
     undo,
     list_moves,
@@ -44,7 +46,11 @@ enum class ChessGuiActionType
     database_load_snapshot,
     database_back,
     network_submit,
-    network_back
+    network_back,
+    open_settings,
+    settings_save,
+    settings_back,
+    send_chat
 };
 
 struct ChessGuiDatabaseEntry
@@ -87,6 +93,54 @@ struct ChessGuiNetworkState
     bool waiting_for_peer = false;
 };
 
+// One editable config.json entry: `value` is always the raw text the user
+// sees/types, even for numeric fields, since the GUI edits it as a plain
+// text field; `is_bool` fields are toggled ("yes"/"no") by a click instead
+// of opening for typing. `is_path` fields additionally get a "Browse"
+// button that opens an in-GUI file picker instead of requiring the path to
+// be typed by hand. The field list order is meaningful - main.cpp builds
+// and parses it positionally, mirroring the CLI settings menu.
+struct ChessGuiSettingsField
+{
+    std::string label;
+    std::string value;
+    bool is_bool = false;
+    bool is_path = false;
+};
+
+struct ChessGuiSettingsState
+{
+    std::vector<ChessGuiSettingsField> fields;
+    int selected_field_index = -1;
+    std::string status_message;
+};
+
+// Feedback for the in-game quick actions (Legal Moves, ML Move, Save) that
+// used to only print to the console the GUI window has no view of.
+struct ChessGuiGameActionState
+{
+    std::string message;
+};
+
+// Network-game chat: `messages` holds fully-formatted lines ("You: hi" /
+// "Marc: hi") in the order they arrived, appended by whichever side
+// (CLI or GUI) sent or received them; `pending_input` is the text currently
+// being typed into the GUI's chat box.
+struct ChessGuiChatState
+{
+    std::vector<std::string> messages;
+    std::string pending_input;
+};
+
+// Whether config.json's model_a_path / model_b_path are actually set,
+// updated whenever config is loaded or saved - see main.cpp. Drives which
+// (if any) ML move button(s) the in-game screen shows: none, one, or both.
+struct ChessGuiMlAvailability
+{
+    bool model_a = false;
+    bool model_b = false;
+};
+
 struct ChessGuiAction
 {
     ChessGuiActionType type = ChessGuiActionType::none;
@@ -107,6 +161,14 @@ public:
     virtual ChessGuiDatabaseState database_state() const = 0;
     virtual void set_network_state(const ChessGuiNetworkState &state) = 0;
     virtual ChessGuiNetworkState network_state() const = 0;
+    virtual void set_settings_state(const ChessGuiSettingsState &state) = 0;
+    virtual ChessGuiSettingsState settings_state() const = 0;
+    virtual void set_game_action_state(const ChessGuiGameActionState &state) = 0;
+    virtual ChessGuiGameActionState game_action_state() const = 0;
+    virtual void set_chat_state(const ChessGuiChatState &state) = 0;
+    virtual ChessGuiChatState chat_state() const = 0;
+    virtual void set_ml_availability(const ChessGuiMlAvailability &availability) = 0;
+    virtual ChessGuiMlAvailability ml_availability() const = 0;
     // The color the local player actually controls in the active network
     // game (resolved after the host/join handshake); playerColor::none
     // outside of network play.
@@ -183,6 +245,58 @@ inline void set_chess_gui_local_player_color(ChessGui *gui, playerColor color)
     {
         gui->set_local_player_color(color);
     }
+}
+
+inline void set_chess_gui_settings_state(ChessGui *gui, const ChessGuiSettingsState &state)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_settings_state(state);
+    }
+}
+
+inline ChessGuiSettingsState get_chess_gui_settings_state(ChessGui *gui)
+{
+    return (gui != nullptr && gui->is_open()) ? gui->settings_state() : ChessGuiSettingsState{};
+}
+
+inline void set_chess_gui_game_action_state(ChessGui *gui, const ChessGuiGameActionState &state)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_game_action_state(state);
+    }
+}
+
+inline ChessGuiGameActionState get_chess_gui_game_action_state(ChessGui *gui)
+{
+    return (gui != nullptr && gui->is_open()) ? gui->game_action_state() : ChessGuiGameActionState{};
+}
+
+inline void set_chess_gui_chat_state(ChessGui *gui, const ChessGuiChatState &state)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_chat_state(state);
+    }
+}
+
+inline ChessGuiChatState get_chess_gui_chat_state(ChessGui *gui)
+{
+    return (gui != nullptr && gui->is_open()) ? gui->chat_state() : ChessGuiChatState{};
+}
+
+inline void set_chess_gui_ml_availability(ChessGui *gui, const ChessGuiMlAvailability &availability)
+{
+    if (gui != nullptr && gui->is_open())
+    {
+        gui->set_ml_availability(availability);
+    }
+}
+
+inline ChessGuiMlAvailability get_chess_gui_ml_availability(ChessGui *gui)
+{
+    return (gui != nullptr && gui->is_open()) ? gui->ml_availability() : ChessGuiMlAvailability{};
 }
 
 #endif /* GUI_H */

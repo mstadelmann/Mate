@@ -13,7 +13,7 @@ struct DatabaseGameSummary
     int move_count = 0;
 };
 
-void store_to_DB(const chess &);
+bool store_to_DB(const chess &);
 void write_moves(void);
 void LoadFromDatabase(chess &);
 bool list_database_games(std::vector<DatabaseGameSummary> &games, std::string &error_message);

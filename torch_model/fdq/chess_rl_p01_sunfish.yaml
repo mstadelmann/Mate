@@ -1,0 +1,27 @@
+defaults:
+  - chess_rl_p00_random
+
+globals:
+  project: Chess
+  author: Marc
+  comment: >
+    Curriculum rung 2: trains against "sunfish-uci" instead of "random"
+    Requires Sunfish (`pip install sunfish`).
+    for both training and testing.
+
+train:
+  args:
+    engine_command: "sunfish-uci"
+
+    val:
+      engine_command: "random"
+      # engine_command: "sunfish-uci"
+      # engine_command: "/usr/games/stockfish"
+      # engine_uci_options: { "Skill Level": 0 }
+
+test:
+  args:
+    engine_command: "random"
+    # engine_command: "sunfish-uci"
+    # engine_command: "/usr/games/stockfish"
+    # engine_uci_options: { "Skill Level": 0 }

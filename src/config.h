@@ -39,13 +39,20 @@ extern bool enable_debug_messages;
 extern std::string db_path;
 extern int network_port; // TCP port for network games
 
-// Path to the ONNX model used for ML moves (may start with '~').
-extern std::string ml_model_path;
+// Paths to the (up to two) ONNX models available for ML moves (each may
+// start with '~'). Either, both, or neither may be set; the CLI and GUI
+// only offer an ML move option for a slot whose path is non-empty. Having
+// both lets two independently-trained models play against each other, or
+// be specialized for different phases of the game (e.g. one for openings,
+// one for endgames) and picked per move.
+extern std::string model_a_path;
+extern std::string model_b_path;
 
 // Load/save config.json under ~/.mate; if $HOME is unset, fall back to
 // config.json next to the binary.
 bool load_config_from_json();
 bool save_config_to_json();
 void init_config_defaults();
+std::string get_config_file_path();
 
 #endif /* CONF_H */

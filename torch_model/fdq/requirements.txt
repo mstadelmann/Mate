@@ -1,0 +1,35 @@
+fdq[full]==0.1.25
+
+# fdq's ONNX export flow (mode.dump_model) doesn't pull these in itself.
+# `onnx` is needed for the default (non-dynamo) exporter; `onnxscript` only
+# if you instead choose the dynamo exporter when prompted.
+onnx
+onnxscript
+
+# Used by torch_model/data_preparation/generate_chess_tensor.py, which has
+# no fdq dependency of its own - streams/parses the Lichess dataset and
+# reads its YAML config. See torch_model/torch_model.md section 1.
+datasets==3.2.0
+numpy>=2.0
+PyYAML==6.0.2
+
+# Used directly by generate_chess_tensor.py, chess_evaluator.py,
+# chess_encoding.py, rl_self_play.py and train_rl.py (board representation,
+# legal moves, and - via its chess.engine submodule - talking to Stockfish
+# over UCI for RL training). Pinned to 1.9.4, not the latest (1.11.2),
+# because sunfish (below) pins chess==1.9.4 exactly - see
+# https://pypi.org/pypi/sunfish/json.
+chess==1.9.4
+
+# Pure-Python UCI engine used as the default RL training/eval opponent
+# (engine_command: "sunfish-uci") - see torch_model/rl_training.md section 3.
+sunfish==2026.1
+
+# stockfish==5.2.0
+# Stockfish (the other RL opponent tier, e.g. chess_rl_p03.yaml) is NOT a
+# pip package - the real engine is a separate compiled binary, not
+# installable via pip. The "stockfish" PyPI package is just a third-party
+# Python wrapper around that binary and isn't used by this code (we talk
+# UCI directly via the `chess` package above) - installing it would add an
+# unused dependency without actually providing Stockfish. See
+# torch_model/rl_training.md section 3 for how to actually install it.

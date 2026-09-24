@@ -6,7 +6,7 @@ hf_dataset_name: "Lichess/standard-chess-games"
 # pipeline is fast to validate end-to-end on a machine with no GPU - raise
 # this a lot (e.g. into the hundreds of thousands) for an actual training
 # run on a GPU machine.
-number_of_games: 2000
+number_of_games: 10000
 
 # Minimum Elo required for BOTH players.
 min_elo: 1800

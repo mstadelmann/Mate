@@ -1,99 +1,63 @@
-import numpy as np
-import torch
-import chess
 from typing import Tuple
+
+import chess
+import torch
 
 from fdq.ui_functions import getIntInput
 
-BOARD_SIZE = (8, 8, 6)
-PIECE_TO_INDEX = {"P": 0, "R": 1, "N": 2, "B": 3, "Q": 4, "K": 5}
-INDEX_TO_PIECE = {0: "P", 1: "R", 2: "N", 3: "B", 4: "Q", 5: "K"}
+from chess_encoding import array_to_board, board_to_array, canonical_index_to_coord
 
 
-def flatten_coord2d(coord2d: Tuple[int, int]) -> int:
-    return (8 * coord2d[0]) + coord2d[1]
+def _evaluate_batch(experiment, model_name: str, batch, verbose: bool = False) -> Tuple[int, int]:
+    """Evaluate a single (batch-size-1) example and return
+    (correct_position, correct_move).
 
-
-def array_to_board(in_array: np.ndarray) -> chess.Board:
-    """Convert a (6, 8, 8) array to a chess.Board."""
-    board = chess.Board()
-    board.clear()
-
-    in_array = in_array.transpose(1, 2, 0)
-
-    for i in range(BOARD_SIZE[0]):
-        for j in range(BOARD_SIZE[1]):
-            index_piece = np.where(in_array[(i, j)] != 0)[0]
-            new_coords = flatten_coord2d((7 - i, j))
-            if index_piece.size:
-                piece = INDEX_TO_PIECE[index_piece[0]]
-                if in_array[(i, j, index_piece[0])] == -1:
-                    piece = piece.lower()
-                board.set_piece_at(new_coords, chess.Piece.from_symbol(piece))
-
-    return board
-
-
-def _evaluate_batch(experiment, batch, verbose: bool = False):
-    """Evaluate a single batch and return (correct_position, correct_move).
-
-    The target and prediction are both represented as 64-element vectors
-    (8x8 board flattened) with values in ``{-1, 0, 1}`` where ``-1`` marks
-    the "from" square, ``+1`` marks the "to" square, and ``0`` all others.
-
-    - ``correct_move`` is 1 only if the predicted move exactly matches the
-        target (both from- and to-square correct).
-    - ``correct_position`` is 1 when the prediction is at least partially
-        correct in terms of the squares involved in the move (from or to).
-
-    When ``verbose`` is True, the current state, target and prediction are
-    printed and the function waits for user input before continuing.
+    - ``correct_move`` is 1 only if both the predicted from- and to-square
+      exactly match the played move.
+    - ``correct_position`` is 1 if at least one of the two squares matches.
     """
 
-    model = experiment.models["simpleNet"]
+    model = experiment.models[model_name]
 
     inputs = batch["inputs"]
-    targets = batch["targets"]
+    from_label = batch["from_label"]
+    to_label = batch["to_label"]
 
     if verbose:
         print("------------------------------------------------")
-        print("current state:")
-        print(array_to_board(torch.squeeze(inputs).numpy()))
+        print("current state (mover always shown as White):")
+        print(array_to_board(torch.squeeze(inputs, 0).numpy()))
+        print(f"\nTarget: from={int(from_label.item())}, to={int(to_label.item())}")
 
-        print("\nTarget:")
-        print(torch.squeeze(targets).reshape(8, 8).numpy())
-
-    pred = model(inputs.to(experiment.device))
-
-    pred_minmax = torch.zeros(64, device=pred.device)
-    pred_minmax[torch.argmin(pred)] = -1
-    pred_minmax[torch.argmax(pred)] = 1
+    from_logits, to_logits = model(inputs.to(experiment.device))
+    pred_from = torch.argmax(from_logits, dim=1).cpu()
+    pred_to = torch.argmax(to_logits, dim=1).cpu()
 
     if verbose:
-        print("\nPrediction:")
-        print(torch.squeeze(pred_minmax.cpu()).reshape(8, 8).numpy())
+        print(f"Prediction: from={int(pred_from.item())}, to={int(pred_to.item())}")
         input("Press Enter to continue...")
 
-    correct_position = (
-        torch.max(targets - pred_minmax.cpu()) == 0
-        or torch.min(targets - pred_minmax.cpu()) == 0
-    )
-    correct_move = (
-        torch.max(targets - pred_minmax.cpu()) == 0
-        and torch.min(targets - pred_minmax.cpu()) == 0
-    )
+    correct_from = pred_from == from_label
+    correct_to = pred_to == to_label
+    correct_move = int((correct_from & correct_to).item())
+    correct_position = int((correct_from | correct_to).item())
 
-    return int(correct_position), int(correct_move)
+    return correct_position, correct_move
 
 
 def fdq_test(experiment):
     print(
         "Scoring metrics:\n"
-        "- correct_move: predicted move exactly matches the target (from- and to-square).\n"
-        "- correct_position: prediction is at least partially correct w.r.t. the involved squares."
+        "- correct_move: predicted from- and to-square both match the played move.\n"
+        "- correct_position: at least one of the two predicted squares matches.\n"
     )
 
-    experiment.models["simpleNet"].eval()
+    # Looked up rather than hardcoded, since this evaluator is shared by both
+    # the supervised config (model key "chessCNN") and the RL one ("chessRL")
+    # - each config defines exactly one model, so its name is whatever key
+    # happens to be there.
+    model_name = next(iter(experiment.models))
+    experiment.models[model_name].eval()
     test_loader = experiment.data["CHESS"].test_data_loader
 
     accuracy = None
@@ -101,11 +65,11 @@ def fdq_test(experiment):
     if experiment.mode.op_mode.unittest or experiment.cfg.mode.run_test_auto:
         # no interactive for test experiments
         tmode = 1
-
     else:
         tmode = getIntInput(
             "\nSelect Testmode:\n1: Automatic with predefined data.\n2: Automatic with"
-            " predefined data - verbose.\n3: Manual Test: Kings pawn E2-E4 (expect C5 or E5 response)",
+            " predefined data - verbose.\n3: Manual Test: Kings pawn E2-E4 (expect a"
+            " sensible Black reply such as C5 or E5)",
             [1, 3],
         )
 
@@ -119,7 +83,6 @@ def fdq_test(experiment):
 
         correct_positions = 0
         correct_moves = 0
-
         nb_evaluated_moved = 0
 
         for i, batch in enumerate(test_loader):
@@ -130,7 +93,7 @@ def fdq_test(experiment):
             nb_evaluated_moved += 1
 
             verbose = tmode == 2
-            c_pos, c_move = _evaluate_batch(experiment, batch, verbose=verbose)
+            c_pos, c_move = _evaluate_batch(experiment, model_name, batch, verbose=verbose)
             correct_positions += c_pos
             correct_moves += c_move
 
@@ -143,52 +106,24 @@ def fdq_test(experiment):
         return accuracy
 
     if tmode == 3:
-        # empty field
-        infield = torch.zeros(1, 6, 8, 8)
-        infield[:, 0, 1, :] = -1  # black pawns
-        infield[:, 0, -2, :] = 1  # white pawns
+        board = chess.Board()
+        board.push_san("e4")  # Black to move, mirrors the old manual smoke test
 
-        infield[:, 1, 0, 0] = -1  # black rock
-        infield[:, 1, 0, -1] = -1  # black rock
-        infield[:, 1, -1, 0] = 1  # white rock
-        infield[:, 1, -1, -1] = 1  # white rock
+        infield = torch.from_numpy(board_to_array(board)).unsqueeze(0)
 
-        infield[:, 2, 0, 1] = -1  # black knight
-        infield[:, 2, 0, -2] = -1  # black knight
-        infield[:, 2, -1, 1] = 1  # white knight
-        infield[:, 2, -1, -2] = 1  # white knight
+        model = experiment.models[model_name]
+        from_logits, to_logits = model(infield.to(experiment.device))
 
-        infield[:, 3, 0, 2] = -1  # black bishop
-        infield[:, 3, 0, -3] = -1  # black bishop
-        infield[:, 3, -1, 2] = 1  # white bishop
-        infield[:, 3, -1, -3] = 1  # white bishop
-
-        infield[:, 4, 0, 3] = -1  # black queen
-        infield[:, 5, 0, -4] = -1  # black king
-        infield[:, 4, -1, 3] = 1  # white queen
-        infield[:, 5, -1, -4] = 1  # white king
-
-        # E2 -> E4
-        infield[:, 0, -2, 4] = 0  # white pawns
-        infield[:, 0, -4, 4] = 1  # white pawns
-
-        model = experiment.models["simpleNet"]
-        pred = model(infield.to(experiment.device))
-
-        pred_minmax = torch.zeros(64, device=pred.device)
-        pred_minmax[torch.argmin(pred)] = -1
-        pred_minmax[torch.argmax(pred)] = 1
+        top_from = torch.topk(from_logits.squeeze(0), k=3).indices.cpu().tolist()
+        top_to = torch.topk(to_logits.squeeze(0), k=3).indices.cpu().tolist()
 
         print("------------------------------------------------")
-        print("current state:")
-        print(array_to_board(torch.squeeze(infield).numpy()))
+        print("current state (mover always shown as White):")
+        print(array_to_board(infield.squeeze(0).numpy()))
 
-        print("\nPrediction:")
-        print(torch.squeeze(pred_minmax.cpu()).reshape(8, 8).numpy())
+        print("\nTop-3 predicted from-squares:", [canonical_index_to_coord(i, False) for i in top_from])
+        print("Top-3 predicted to-squares:", [canonical_index_to_coord(i, False) for i in top_to])
 
         input("Press Enter to continue...")
-
-        print("raw prediction")
-        print(pred.detach().cpu().reshape(8, 8))
 
     return 1
