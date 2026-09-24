@@ -46,7 +46,7 @@ train:
   path: "~/dev/Mate/torch_model/fdq/train.py"
   args:
     model_name: chessFC
-    epochs: 200
+    epochs: 500
     use_GPU: true
     use_AMP: false
     accumulate_grad_batches: 1

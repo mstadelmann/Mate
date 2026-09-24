@@ -120,10 +120,12 @@ def fdq_train(experiment: fdqExperiment) -> None:
                     device=experiment.device,
                     max_plies=games_max_plies,
                 )
+                # Raw counts disabled: games_nb is fixed, so they're the same
+                # curves as the *_rate ones, just scaled.
                 log_scalars = {
-                    "val_wins": wins,
-                    "val_draws": draws,
-                    "val_losses": losses,
+                    # "val_wins": wins,
+                    # "val_draws": draws,
+                    # "val_losses": losses,
                     "val_win_rate": wins / games_nb,
                     "val_draw_rate": draws / games_nb,
                     "val_loss_rate": losses / games_nb,

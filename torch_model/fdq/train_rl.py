@@ -187,10 +187,12 @@ def fdq_train(experiment: fdqExperiment) -> None:
                 f"({win_rate:.1%} / {draw_rate:.1%} / {loss_rate:.1%})"
             )
 
+            # Raw counts disabled: games_per_epoch is fixed, so they're the
+            # same curves as the *_rate ones, just scaled.
             log_scalars = {
-                "wins": wins,
-                "draws": draws,
-                "losses": losses,
+                # "wins": wins,
+                # "draws": draws,
+                # "losses": losses,
                 "win_rate": win_rate,
                 "draw_rate": draw_rate,
                 "loss_rate": loss_rate,
@@ -206,9 +208,9 @@ def fdq_train(experiment: fdqExperiment) -> None:
                     max_plies=val_max_plies,
                 )
 
-                log_scalars["val_wins"] = val_wins
-                log_scalars["val_draws"] = val_draws
-                log_scalars["val_losses"] = val_losses
+                # log_scalars["val_wins"] = val_wins
+                # log_scalars["val_draws"] = val_draws
+                # log_scalars["val_losses"] = val_losses
                 log_scalars["val_win_rate"] = val_wins / val_nb_games
                 log_scalars["val_draw_rate"] = val_draws / val_nb_games
                 log_scalars["val_loss_rate"] = val_losses / val_nb_games
