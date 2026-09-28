@@ -90,6 +90,8 @@ all there is to it. No search tree, no opponent model, no replay buffer.
 | [fdq/train_rl.py](fdq/train_rl.py) | The "trainer" half: opens the opponent (an engine, or the built-in random mover), runs the epoch loop, plays batches of self-play games, computes the REINFORCE loss, and steps the optimizer. This is fdq's `train.path` entry point, playing the same role `train.py` does for the supervised pipeline. |
 | [fdq/rl_evaluator.py](fdq/rl_evaluator.py) | This pipeline's own `test.processor`: plays evaluation games against a fixed opponent (no learning, no exploration) and reports the win rate. Deliberately **not** `chess_evaluator.py` - see section 4.5. |
 | [fdq/chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml) | The FDQ experiment config for this pipeline - same architecture as the supervised `chessCNN` model in [chess_cnn_p00.yaml](fdq/chess_cnn_p00.yaml), defined here under the key `chessRL` instead (so it's clear which pipeline produced a given checkpoint/export), pointed at `train_rl.py`/`rl_evaluator.py` instead of `train.py`/`chess_evaluator.py`, plus the self-play-specific settings (see section 4). |
+| [fdq/chess_rl_p01_sunfish.yaml](fdq/chess_rl_p01_sunfish.yaml), [fdq/chess_rl_p02_stockfish.yaml](fdq/chess_rl_p02_stockfish.yaml) | Training against Sunfish / Stockfish Skill Level 5, warm-started from the best supervised CNN (section 7). Trained from scratch, both learned essentially nothing - see section 8. |
+| [fdq/chess_rl_p03_warmstart.yaml](fdq/chess_rl_p03_warmstart.yaml) | Like p00 (trains and evaluates against `"random"`), but warm-started from the best supervised CNN - see section 7. |
 
 ### Why a fixed external opponent, and which one?
 
@@ -234,9 +236,11 @@ otherwise against the training opponent. `trainLoss` stays the policy
 loss, so `best_train` checkpoints are *not* meaningful here - use
 `best_val`/`"best"`.
 Once that win rate against `"random"` sits comfortably above 50% for a
-while, move up to [chess_rl_p01_sunfish.yaml](fdq/chess_rl_p01_sunfish.yaml)
-(section 3) for a tougher second stage - expect the win rate to drop back
-down sharply when you do, per section 2's measured caveat about Sunfish.
+while, move up to a tougher opponent. In the measured runs (section 8),
+Sunfish and Stockfish Skill Level 5 were both far too strong (zero
+training wins in 50k games), so the next step should be Stockfish
+Skill Level 0 - and ideally start from the supervised model instead of
+from scratch (section 7; p01-p03 already do).
 
 Config knobs worth knowing about (all in `train.args` in
 [chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml)):
@@ -257,7 +261,16 @@ Config knobs worth knowing about (all in `train.args` in
   and for Sunfish (it has none).
 - `engine_movetime_ms`: how long the engine is allowed to think per move.
   Keep it short - see section 2's explanation of why a beatable opponent
-  matters here. Ignored for `"random"`.
+  matters here. Ignored for `"random"`. This works for any UCI engine,
+  but it is a weak strength knob: Stockfish's `Skill Level` already caps
+  its search depth, and Sunfish stays strong even at 1ms.
+- `init_weights_path`: a `.fdqm` model whose weights initialize `chessRL`
+  before training (warm start), e.g. a supervised `best_val_chessCNN_e*.fdqm`.
+  `null` (the default) trains from random weights. See section 7.
+- `freeze_batchnorm_stats`: `true` plays and trains with the network in
+  `eval()` mode, so BatchNorm's running statistics stay fixed while every
+  weight still learns. Required together with `init_weights_path` - see
+  section 8, finding 4.
 
 ## 4.5) Evaluating a trained model (`mode.run_test_auto` / `run_test_interactive`)
 
@@ -343,15 +356,154 @@ Any of these would make the model stronger, and each is a well-documented,
 standard extension in the RL literature if you want to pursue it - they're
 just not needed to demonstrate the core RL idea, which is the goal here.
 
-## 7) Combining supervised and RL (a possible extension, not implemented here)
+## 7) Combining supervised and RL (warm start)
 
-Because both pipelines train the exact same `ChessCNN` class, an obvious
-next experiment - explicitly **not** built here since the from-scratch
-option was chosen for this version - would be to warm-start RL from a
-supervised checkpoint (`models.chessRL.trained_model_path` in
-[chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml)) rather than training from
-random weights: fine-tune an already-competent model with self-play
-instead of teaching the RL loop chess from zero. This mirrors how
-real-world systems commonly combine the two (pretrain by imitation, then
-refine with RL) - a natural follow-up once you're comfortable with the
-mechanics here.
+Because both pipelines train the exact same `ChessCNN` class, RL can start
+from a supervised checkpoint instead of from random weights: it then
+fine-tunes a model that already plays sensible chess, instead of having to
+learn chess from zero. This mirrors how real-world systems commonly
+combine the two (AlphaGo: pretrain by imitation, then refine with RL).
+After the from-scratch results in section 8, this is the recommended way
+to use this pipeline.
+
+[chess_rl_p01_sunfish.yaml](fdq/chess_rl_p01_sunfish.yaml) and
+[chess_rl_p02_stockfish.yaml](fdq/chess_rl_p02_stockfish.yaml) do this,
+and so does [chess_rl_p03_warmstart.yaml](fdq/chess_rl_p03_warmstart.yaml),
+the warm-started counterpart of p00 (trained and evaluated against
+`"random"`). [chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml)
+itself still trains from scratch (`init_weights_path: null`):
+
+```yaml
+train:
+  args:
+    init_weights_path: "~/data_ML/results/Chess/chess_cnn_p01/20260923_17_37_49__fervent_keller/best_val_chessCNN_e148.fdqm"
+    freeze_batchnorm_stats: true
+```
+
+How it works (`load_init_weights()` in [train_rl.py](fdq/train_rl.py)):
+fdq instantiates `chessRL` with random weights and builds its optimizer as
+usual. Then, before the first game, `train_rl.py` loads the `.fdqm` file
+(a whole pickled model) and copies its weights into `chessRL` with
+`load_state_dict(strict=True)`. The copy happens in place, so the
+optimizer built by fdq stays valid, and a mismatched architecture fails
+loudly instead of loading partially. When a run is resumed
+(`mode.resume_chpt_path`), the warm start is skipped, because the
+checkpoint already holds the RL-trained weights.
+
+Two fdq mechanisms were deliberately **not** used:
+
+- `models.chessRL.trained_model_path`: fdq also uses it to pick the
+  model for testing and ONNX export, so it would evaluate and export the
+  supervised starting point instead of the RL result.
+- `mode.resume_chpt_path`: it resumes a full fdq checkpoint of the *same*
+  experiment (epoch counter, optimizer state, ...), not "start a new run
+  from these weights".
+
+**Why this checkpoint:** every supervised `best_val` model under
+`~/data_ML/results/Chess/chess_cnn_p0*` was played greedily against
+random (100 games) and Stockfish Skill Level 0 (50 games, 10ms/move):
+
+| Run | Test move accuracy | vs random W/D/L | vs Stockfish Skill 0 W/D/L |
+| --- | --- | --- | --- |
+| chess_cnn_p00 (2k games, 5 runs) | 0.16-0.23 | 23-41 / 59-77 / 0 | 0-2 / 0-2 / 47-50 |
+| chess_cnn_p01 eloquent_kilby e99 | 0.283 | 65 / 35 / 0 | 0 / 2 / 48 |
+| chess_cnn_p01 amazing_einstein e1 | 0.285 | 43 / 57 / 0 | 1 / 2 / 47 |
+| **chess_cnn_p01 fervent_keller e148** | **0.287** | **68 / 32 / 0** | 0 / 4 / 46 |
+| chess_cnn_p01 gifted_meitner e167 | 0.278 | 64 / 36 / 0 | 1 / 2 / 47 |
+
+`fervent_keller` is best on both the supervised metric and actual play.
+Note that even the best supervised model loses almost every game against
+Stockfish Skill Level 0. So a warm start alone likely won't give p01
+(Sunfish) and p02 (Stockfish Skill 5) enough training wins - see
+section 8, recommendation 2.
+
+p01-p03 also lower the learning rate to `1e-4` (p00: `3e-4`), to
+fine-tune rather than overwrite the supervised knowledge. p03 also plays
+50 validation / 100 test games instead of 20 / 50, so the "best"
+checkpoint is chosen less by luck. Since p03 starts from a model that
+already wins ~68% vs random, it's the cleanest measure of what RL adds on
+top of the supervised model.
+
+## 8) Findings from the first training runs (September 2026)
+
+The three from-scratch configs were trained for 500 epochs (100 games
+each, i.e. 50k games per run). Results of the last runs
+(`~/data_ML/results/Chess/chess_rl_p0*`, logs in
+`fdq/logs/train_all_20260924_064256/`), all *tested* against `"random"`
+(50 greedy games):
+
+| Config | Training games (epochs 50-450) | Val vs random (20 games) | Test vs random |
+| --- | --- | --- | --- |
+| p00 random | 53-87% won, 0-3% lost | 50-95% won | **90% won**, 10% drawn |
+| p01 sunfish | **0 wins**, 66-99% lost | 5-45% won | 28% won, 70% drawn |
+| p02 stockfish (Skill 5) | **0 wins, 100% lost, every epoch** | 0-5% won | **2% won**, 92% drawn |
+
+p00 learned to beat a random mover and nothing more. p01 and p02 learned
+essentially nothing: the p02 model can't even checkmate a random mover,
+and its "best" checkpoint (by validation) is from epoch 7, i.e. almost
+untrained.
+
+### Why
+
+1. **Training opponent too strong → no learning signal.** In p01 and p02
+   the network never won a single training game. Every return is -1, so
+   REINFORCE only ever pushes down whichever move was sampled. That tells
+   the network what to avoid, but never what to prefer - this is the whole
+   failure of p01/p02. Sunfish has no weak mode at all; Stockfish Skill 5
+   is far too strong for a from-scratch network.
+2. **Random initialization.** Learning chess from zero with a single
+   end-of-game ±1 per game needs vastly more than 50k games. The
+   supervised CNN already wins ~65% vs random before any RL.
+3. **Sparse reward.** Every move of a game gets the same ±1, a draw
+   (including hitting `max_plies_per_game`) is 0, and there is no baseline
+   and no per-move reward.
+4. **BatchNorm in `train()` mode during play.** Each batched forward pass
+   during self-play updates BatchNorm's running mean/var with statistics
+   of whatever boards happen to be waiting - a batch that shrinks down to
+   1 as games end. Validation and testing then use those running
+   statistics in `eval()` mode, i.e. a slightly different network than the
+   one that played. Measured on the warm-start checkpoint: 100 sampled
+   games in `train()` mode, **without any optimizer step**, drop it from 68
+   to 22 wins out of 100 vs random; in `eval()` mode it stays at 68. Fixed
+   by `freeze_batchnorm_stats: true` (on in the warm-started p01-p03,
+   still off in the from-scratch p00).
+5. **Factorized move scoring.** A move's score is `from_logit + to_logit`
+   ([rl_self_play.py](fdq/rl_self_play.py), `select_network_moves()`), so
+   the network cannot prefer a specific from/to *pair* - it ranks
+   from-squares and to-squares independently. That caps its strength
+   regardless of the training method.
+6. **Noisy checkpoint selection.** 20 validation games are too few, and
+   `test_model: "best"` then picks whichever epoch got lucky.
+
+### What to change, by expected impact
+
+1. **Warm start from the best supervised model.** ✅ Implemented, see
+   section 7 (in p01-p03), together with the BatchNorm
+   fix (finding 4), without which the warm start is mostly lost.
+2. **Beatable opponents, as a curriculum.** random → Stockfish Skill 0
+   with a short movetime (`engine_uci_options: {"Skill Level": 0}`,
+   `engine_movetime_ms: 10`) → Skill 1, 2, 3, ... Move up only once the
+   training win rate is above ~30-50%. Drop Sunfish from the curriculum.
+   Self-play against past copies of the network is an alternative that
+   keeps the opponent roughly as strong as the network.
+3. **A better learning signal.** Subtract a baseline (running mean of
+   returns, or a value head) to get an advantage; add per-move rewards
+   (material change, or better, the change in Stockfish's evaluation after
+   each move - by far the biggest credit-assignment improvement); add a
+   small entropy bonus; against random, give draws a small penalty (e.g.
+   -0.2) to push the network to actually finish games.
+4. **BatchNorm for from-scratch runs as well.** Either use
+   `freeze_batchnorm_stats` there too (and recompute log-probs in one
+   batched forward pass before the backward pass), or replace BatchNorm
+   with GroupNorm/LayerNorm.
+5. **A joint move head.** A 64×64 (4096) from-to output, or AlphaZero's
+   73×64. This changes the ONNX output contract and
+   [src/chess_ML.cpp](../src/chess_ML.cpp).
+6. **Proper evaluation.** 100+ validation games, testing against
+   Stockfish Skill 0-3 instead of only random, possibly `test_model: last`.
+
+A pragmatic alternative to most of the above: train the network
+*supervised* on Stockfish's best moves (Stockfish labels millions of
+positions). That is much cheaper and more reliable than REINFORCE, and is
+how most decent small chess networks are made - RL is then a fine-tuning
+step on top.

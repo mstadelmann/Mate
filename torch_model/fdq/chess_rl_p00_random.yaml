@@ -49,6 +49,14 @@ train:
     games_per_epoch: 100 # self-play games played per "epoch"
     games_per_update: 8 # games averaged together before each gradient step
     max_plies_per_game: 200 # safety cap; games rarely need this many plies
+    # Warm start: .fdqm model whose weights initialize chessRL (same
+    # ChessCNN architecture required). null = random init. Not fdq's
+    # trained_model_path/resume_chpt_path - see load_init_weights() in train_rl.py.
+    init_weights_path: null
+    # true = play/train with BatchNorm in eval mode (running stats frozen).
+    # Needed with init_weights_path, otherwise self-play overwrites the
+    # pretrained statistics - see rl_training.md section 8.
+    freeze_batchnorm_stats: false
 
     engine_command: "random"
     engine_uci_options: {} # UCI setoption params; empty for "random"/Sunfish, e.g. {"Skill Level": 0} for Stockfish

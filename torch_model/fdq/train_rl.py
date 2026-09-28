@@ -13,11 +13,42 @@ and the same C++ src/chess_ML.cpp consumer, work for either model - only
 how the weights are produced differs.
 """
 
+import os
+
 import torch
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import iprint, startProgBar
 
 from rl_self_play import close_engines, make_opponents, play_games, play_greedy_games
+
+
+def load_init_weights(experiment: fdqExperiment, model: torch.nn.Module, init_weights_path: str) -> None:
+    """Warm-start: copy the weights of a trained model (e.g. a supervised
+    chess_cnn_p01 best_val_chessCNN_e*.fdqm) into the freshly instantiated
+    chessRL model, before any RL update.
+
+    Deliberately NOT fdq's `models.chessRL.trained_model_path`: fdq also
+    uses that one to pick the model for testing and dumping, which would
+    then evaluate/export the supervised starting point instead of the
+    RL-trained result. And NOT `mode.resume_chpt_path`, which resumes a
+    whole fdq checkpoint (epoch counter, optimizer, ...) of the *same*
+    experiment. Only the weights are copied, in place (load_state_dict), so
+    the optimizer fdq already built around the model's parameters stays
+    valid. Architectures must match exactly (strict=True raises otherwise).
+
+    Skipped when resuming (start_epoch > 0): the resumed checkpoint already
+    holds the RL-trained weights, which must not be overwritten.
+    """
+    if experiment.start_epoch > 0:
+        iprint(f"Resuming at epoch {experiment.start_epoch}: ignoring init_weights_path.")
+        return
+
+    path = os.path.expanduser(init_weights_path)
+    iprint(f"Warm start: loading initial weights from {path}")
+    # .fdqm files are whole pickled models (torch.save(model)), not state dicts.
+    source = torch.load(path, weights_only=False, map_location=experiment.device)
+    state_dict = source.state_dict() if isinstance(source, torch.nn.Module) else source
+    model.load_state_dict(state_dict, strict=True)
 
 
 def fdq_train(experiment: fdqExperiment) -> None:
@@ -36,6 +67,13 @@ def fdq_train(experiment: fdqExperiment) -> None:
     model = experiment.models["chessRL"]
     optimizer = experiment.optimizers["chessRL"]
     args = experiment.cfg.train.args
+
+    # Optional warm start from a (supervised) model - null trains from
+    # random weights, see load_init_weights() and rl_training.md section 8.
+    init_weights_path = args.get("init_weights_path", None)
+    if init_weights_path:
+        load_init_weights(experiment, experiment.models_no_ddp["chessRL"], init_weights_path)
+    freeze_batchnorm_stats: bool = args.get("freeze_batchnorm_stats", False)
 
     games_per_epoch: int = args.get("games_per_epoch", 100)
     games_per_update: int = args.get("games_per_update", 8)
@@ -98,7 +136,18 @@ def fdq_train(experiment: fdqExperiment) -> None:
         for epoch in range(experiment.start_epoch, experiment.nb_epochs):
             experiment.on_epoch_start(epoch=epoch)
 
-            model.train()
+            # In train() mode every forward pass during play overwrites
+            # BatchNorm's running mean/var with statistics of whatever odd
+            # batch of boards happens to be waiting (shrinking to 1 as games
+            # end). That alone - without any optimizer step - drops the
+            # warm-started supervised model from 68 to 22 wins in 100 games
+            # vs random (see rl_training.md section 8). eval() keeps the
+            # running statistics frozen; gradients still flow and every
+            # weight, including BatchNorm's affine scale/shift, still learns.
+            if freeze_batchnorm_stats:
+                model.eval()
+            else:
+                model.train()
             epoch_loss_sum = 0.0
             nb_updates = 0
             wins = losses = draws = 0

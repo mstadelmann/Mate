@@ -40,6 +40,7 @@ EXPERIMENTS=(
 	chess_rl_p00_random
 	chess_rl_p01_sunfish
 	chess_rl_p02_stockfish
+	chess_rl_p03_warmstart
 )
 
 if ! command -v fdq >/dev/null 2>&1; then
