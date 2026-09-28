@@ -46,21 +46,23 @@ train:
   path: "~/dev/Mate/torch_model/fdq/train.py"
   args:
     model_name: chessFC
-    epochs: 500
+    epochs: 1000
     use_GPU: true
     use_AMP: false
     accumulate_grad_batches: 1
-    early_stop_val_loss: 5
-    early_stop_train_loss: 5
+    early_stop_val_loss: 10
+    early_stop_train_loss: 10
     early_stop_nan: 5
     nb_engines: null # parallel engine processes playing the train/val games; null = one per CPU core
 
     val:
       nb_games: 20
       max_plies_per_game: 200
-      engine_command: "random"
-      engine_uci_options: {}
-      engine_movetime_ms: 50
+      # engine_command: "random"
+      # engine_command: "sunfish-uci"
+      engine_command: "/usr/games/stockfish"
+      engine_uci_options: { "Skill Level": 0, "Threads": 1 }
+      engine_movetime_ms: 10
 
 losses:
   ce_from:
