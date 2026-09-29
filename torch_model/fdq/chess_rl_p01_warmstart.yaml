@@ -24,10 +24,6 @@ train:
     freeze_batchnorm_stats: true # keep the supervised BatchNorm statistics
     engine_command: "random"
 
-    val:
-      nb_games: 50 # more than p00's 20: "best" checkpoint selection is less noisy
-      engine_command: "random"
-
 test:
   args:
     nb_eval_games: 100

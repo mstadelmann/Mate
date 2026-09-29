@@ -22,12 +22,6 @@ train:
     init_weights_path: "~/data_ML/results/Chess/chess_cnn_p01/20260923_17_37_49__fervent_keller/best_val_chessCNN_e148.fdqm"
     freeze_batchnorm_stats: true # keep the supervised BatchNorm statistics
 
-    val:
-      engine_command: "random"
-      # engine_command: "sunfish-uci"
-      # engine_command: "/usr/games/stockfish"
-      # engine_uci_options: { "Skill Level": 0 }
-
 test:
   args:
     engine_command: "random"

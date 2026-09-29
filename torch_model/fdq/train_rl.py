@@ -19,7 +19,7 @@ import torch
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import iprint, startProgBar
 
-from rl_self_play import close_engines, make_opponents, play_games, play_greedy_games
+from rl_self_play import close_engines, make_opponents, make_val_opponents, play_games, play_val_games
 
 
 def load_init_weights(experiment: fdqExperiment, model: torch.nn.Module, init_weights_path: str) -> None:
@@ -112,25 +112,28 @@ def fdq_train(experiment: fdqExperiment) -> None:
         engine_command, engine_uci_options, engine_movetime_ms, nb_engines
     )
 
-    # Optional per-epoch validation against its *own* opponent (train.args.val),
-    # e.g. train vs Stockfish Skill Level 5 but validate vs Skill Level 0, so
-    # progress stays visible even while the training opponent still wins
-    # nearly every game. Played greedily (the network's best move, no
-    # exploration) and without gradients - same as rl_evaluator.py does.
-    # Omit train.args.val (or set nb_games: 0) to skip validation entirely.
-    val_args = args.get("val", None) or {}
-    val_nb_games: int = val_args.get("nb_games", 0)
-    val_engine_command: str = val_args.get("engine_command", "random")
-    val_max_plies: int = val_args.get("max_plies_per_game", max_plies_per_game)
-    val_engines = []
-    val_move_getters = None
-    if val_nb_games > 0:
-        val_move_getters, val_engines = make_opponents(
-            val_engine_command,
-            dict(val_args.get("engine_uci_options", {}) or {}),
-            val_args.get("engine_movetime_ms", engine_movetime_ms),
-            nb_engines,
+    # Optional per-epoch validation against its *own* opponent(s)
+    # (train.args.val), e.g. train vs Stockfish Skill Level 5 but validate
+    # vs Skill Level 0, so progress stays visible even while the training
+    # opponent still wins nearly every game. Played greedily (the network's
+    # best move, no exploration) and without gradients - same as
+    # rl_evaluator.py does. train.args.val is either a single opponent
+    # config or a list of them, each logged as <log_name>/val_win_rate etc.
+    # (see make_val_opponents() in rl_self_play.py); with several, exactly
+    # one sets select_best: true to pick the win rate that drives valLoss
+    # below. Omit train.args.val (or set nb_games: 0) to skip validation.
+    try:
+        val_opponents, val_engines = make_val_opponents(
+            args.get("val", None),
+            nb_engines=nb_engines,
+            default_max_plies=max_plies_per_game,
+            default_movetime_ms=engine_movetime_ms,
+            require_select_best=True,
         )
+    except BaseException:
+        close_engines(engines)
+        raise
+    best_val_opponent = next((opp for opp in val_opponents if opp.select_best), None)
 
     try:
         for epoch in range(experiment.start_epoch, experiment.nb_epochs):
@@ -247,28 +250,12 @@ def fdq_train(experiment: fdqExperiment) -> None:
                 "loss_rate": loss_rate,
             }
 
-            if val_move_getters is not None:
+            if val_opponents:
                 model.eval()
-                val_wins, val_draws, val_losses = play_greedy_games(
-                    model=model,
-                    opponent_move_getters=val_move_getters,
-                    nb_games=val_nb_games,
-                    device=experiment.device,
-                    max_plies=val_max_plies,
-                )
-
-                # log_scalars["val_wins"] = val_wins
-                # log_scalars["val_draws"] = val_draws
-                # log_scalars["val_losses"] = val_losses
-                log_scalars["val_win_rate"] = val_wins / val_nb_games
-                log_scalars["val_draw_rate"] = val_draws / val_nb_games
-                log_scalars["val_loss_rate"] = val_losses / val_nb_games
-                iprint(
-                    f"Epoch {epoch} val vs {val_engine_command}: "
-                    f"{val_wins} wins, {val_draws} draws, {val_losses} losses "
-                    f"({log_scalars['val_win_rate']:.1%} / {log_scalars['val_draw_rate']:.1%} / "
-                    f"{log_scalars['val_loss_rate']:.1%})"
-                )
+                for opp in val_opponents:
+                    opp_scalars, summary = play_val_games(model, opp, experiment.device)
+                    log_scalars.update(opp_scalars)
+                    iprint(f"Epoch {epoch} val {summary}")
 
             # fdq expects both a train and a val loss to track "best"
             # checkpoints and drive early stopping. The REINFORCE policy
@@ -276,13 +263,13 @@ def fdq_train(experiment: fdqExperiment) -> None:
             # games push it down, and its magnitude mostly tracks how
             # confident the policy is (see rl_training.md) - so "lowest
             # loss" would tend to pick one of the *worst* checkpoints.
-            # valLoss is therefore 1 - win rate: against the val opponent
-            # if train.args.val is enabled (greedy, cleanest signal),
-            # otherwise against the training opponent. Draws count as
-            # "not won", same as losses.
+            # valLoss is therefore 1 - win rate: against the select_best
+            # val opponent if train.args.val is enabled (greedy, cleanest
+            # signal), otherwise against the training opponent. Draws count
+            # as "not won", same as losses.
             experiment.trainLoss = avg_loss
-            if val_move_getters is not None:
-                experiment.valLoss = 1.0 - log_scalars["val_win_rate"]
+            if best_val_opponent is not None:
+                experiment.valLoss = 1.0 - log_scalars[f"{best_val_opponent.log_name}/val_win_rate"]
             else:
                 experiment.valLoss = 1.0 - win_rate
 

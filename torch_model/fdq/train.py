@@ -10,7 +10,7 @@ import torch
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import startProgBar, iprint
 
-from rl_self_play import close_engines, make_opponents, play_greedy_games
+from rl_self_play import close_engines, make_val_opponents, play_val_games
 
 
 def fdq_train(experiment: fdqExperiment) -> None:
@@ -28,26 +28,20 @@ def fdq_train(experiment: fdqExperiment) -> None:
     # Determine the autocast device type from the experiment's device.
     device_type = getattr(getattr(experiment, "device", None), "type", "cpu")
 
-    # Optional per-epoch games against a fixed opponent (train.args.val),
+    # Optional per-epoch games against fixed opponents (train.args.val),
     # played greedily like the RL pipeline's validation (see train_rl.py), so
     # wins/draws/losses are tracked for supervised models too - their
     # cross-entropy loss alone says nothing about actual playing strength.
-    # Omit train.args.val (or set nb_games: 0) to skip.
-    games_args = experiment.cfg.train.args.get("val", None) or {}
-    games_nb: int = games_args.get("nb_games", 0)
-    games_engine_command: str = games_args.get("engine_command", "random")
-    games_max_plies: int = games_args.get("max_plies_per_game", 200)
-    games_engines = []
-    games_move_getters = None
-    if games_nb > 0:
-        # one engine process per CPU core by default, playing the games in
-        # parallel - see play_games() in rl_self_play.py.
-        games_move_getters, games_engines = make_opponents(
-            games_engine_command,
-            dict(games_args.get("engine_uci_options", {}) or {}),
-            games_args.get("engine_movetime_ms", 50),
-            experiment.cfg.train.args.get("nb_engines", None),
-        )
+    # train.args.val is either a single opponent config or a list of them;
+    # each one's `log_name` (default: engine_command's basename) prefixes its
+    # wandb keys, e.g. "stockfish_lv_0/val_win_rate" - see
+    # make_val_opponents() in rl_self_play.py. select_best is ignored here:
+    # valLoss stays the cross-entropy loss. Omit train.args.val (or set
+    # nb_games: 0 on an entry) to skip.
+    games_opponents, games_engines = make_val_opponents(
+        experiment.cfg.train.args.get("val", None),
+        nb_engines=experiment.cfg.train.args.get("nb_engines", None),
+    )
 
     try:
         for epoch in range(experiment.start_epoch, experiment.nb_epochs):
@@ -112,25 +106,10 @@ def fdq_train(experiment: fdqExperiment) -> None:
             # Logged to wandb/tensorboard by on_epoch_end() below (fdq adds
             # train_loss / val_loss / epoch itself).
             log_scalars = {}
-            if games_move_getters is not None:
-                wins, draws, losses = play_greedy_games(
-                    model=model,
-                    opponent_move_getters=games_move_getters,
-                    nb_games=games_nb,
-                    device=experiment.device,
-                    max_plies=games_max_plies,
-                )
-                # Raw counts disabled: games_nb is fixed, so they're the same
-                # curves as the *_rate ones, just scaled.
-                log_scalars = {
-                    # "val_wins": wins,
-                    # "val_draws": draws,
-                    # "val_losses": losses,
-                    "val_win_rate": wins / games_nb,
-                    "val_draw_rate": draws / games_nb,
-                    "val_loss_rate": losses / games_nb,
-                }
-                iprint(f"Epoch {epoch} games vs {games_engine_command}: {wins} wins, {draws} draws, {losses} losses")
+            for opp in games_opponents:
+                opp_scalars, summary = play_val_games(model, opp, experiment.device)
+                log_scalars.update(opp_scalars)
+                iprint(f"Epoch {epoch} games {summary}")
 
             experiment.on_epoch_end(log_scalars=log_scalars)
 

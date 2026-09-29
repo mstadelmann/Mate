@@ -231,7 +231,9 @@ For the same reason, fdq's `valLoss` (which picks the "best" checkpoint
 and drives early stopping) is set to `1 - win rate`, not the policy loss:
 against the `train.args.val` opponent if that's enabled (`nb_games > 0` -
 greedy games vs a separately configured opponent, e.g. an easier
-Stockfish Skill Level than the training one, logged as `val_win_rate`),
+Stockfish Skill Level than the training one, logged as
+`<log_name>/val_win_rate`; with a list of val opponents, the one marked
+`select_best: true`),
 otherwise against the training opponent. `trainLoss` stays the policy
 loss, so `best_train` checkpoints are *not* meaningful here - use
 `best_val`/`"best"`.
@@ -419,8 +421,11 @@ section 8, recommendation 2.
 
 p01-p03 also lower the learning rate to `1e-4` (p00: `3e-4`), to
 fine-tune rather than overwrite the supervised knowledge. p03 also plays
-50 validation / 100 test games instead of 20 / 50, so the "best"
-checkpoint is chosen less by luck. Since p03 starts from a model that
+100 test games instead of 50, for a less noisy final score. (Validation
+is the same for every RL config - and the supervised ones: 20 games each
+vs random, Stockfish Skill Level 0 and Sunfish, with the random win rate
+picking the "best" checkpoint - see `train.args.val` in
+chess_rl_p00_random.yaml.) Since p03 starts from a model that
 already wins ~68% vs random, it's the cleanest measure of what RL adds on
 top of the supervised model.
 

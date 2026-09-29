@@ -13,6 +13,7 @@ used standalone.
 
 import os
 import random
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Tuple
@@ -39,12 +40,30 @@ class GameTrajectory:
     opponent's moves - we have no gradient to take through Stockfish's
     move choice, so those plies simply aren't part of the trajectory).
     `result` is from the network's own point of view, already accounting
-    for which color it played that game.
+    for which color it played that game. `termination` says how the game
+    ended: a lower-cased chess.Termination name ("checkmate", "stalemate",
+    "threefold_repetition", ...), or "max_plies" if it was cut off at
+    max_plies with no claimable draw (still scored as a draw).
     """
 
     log_probs: List[torch.Tensor] = field(default_factory=list)
     result: str = "draw"  # one of "win", "loss", "draw"
+    termination: str = "max_plies"
     nb_plies: int = 0
+
+
+# Every way a (standard chess) game can end in a draw - see
+# GameTrajectory.termination. Fixed list so each reason gets logged every
+# epoch, even at zero, instead of its wandb curve having gaps.
+DRAW_REASONS = (
+    "max_plies",
+    "stalemate",
+    "insufficient_material",
+    "threefold_repetition",
+    "fifty_moves",
+    "fivefold_repetition",
+    "seventyfive_moves",
+)
 
 
 def select_network_moves(
@@ -180,6 +199,7 @@ def play_games(
 
     for board, trajectory, plays_white in zip(boards, trajectories, network_plays_white):
         outcome = board.outcome(claim_draw=True)
+        trajectory.termination = "max_plies" if outcome is None else outcome.termination.name.lower()
         if outcome is None or outcome.winner is None:
             trajectory.result = "draw"
         elif (outcome.winner == chess.WHITE) == plays_white:
@@ -215,8 +235,21 @@ def play_greedy_games(
     train_rl.py and the supervised train.py, and for testing by
     rl_evaluator.py - works for either model, since both share the same
     board_to_array() encoding and (from_logits, to_logits) output."""
+    results = [t.result for t in play_greedy_trajectories(model, opponent_move_getters, nb_games, device, max_plies)]
+    return results.count("win"), results.count("draw"), results.count("loss")
+
+
+def play_greedy_trajectories(
+    model: torch.nn.Module,
+    opponent_move_getters: List[MoveGetter],
+    nb_games: int,
+    device: torch.device,
+    max_plies: int = 200,
+) -> List[GameTrajectory]:
+    """play_greedy_games(), but returning the full trajectories, for callers
+    that also want e.g. each game's `termination`."""
     with torch.no_grad():
-        trajectories = play_games(
+        return play_games(
             model=model,
             opponent_move_getters=opponent_move_getters,
             network_plays_white=[game_idx % 2 == 0 for game_idx in range(nb_games)],
@@ -224,8 +257,6 @@ def play_greedy_games(
             max_plies=max_plies,
             greedy=True,
         )
-    results = [t.result for t in trajectories]
-    return results.count("win"), results.count("draw"), results.count("loss")
 
 
 def random_move_getter(board: chess.Board) -> chess.Move:
@@ -295,6 +326,125 @@ def make_opponents(
         close_engines(engines)
         raise
     return getters, engines
+
+
+@dataclass
+class ValOpponent:
+    """One entry of train.args.val, with its engine(s) opened - see
+    make_val_opponents()."""
+
+    log_name: str
+    move_getters: List[MoveGetter]
+    nb_games: int
+    max_plies: int
+    select_best: bool
+
+
+def make_val_opponents(
+    val_cfg,
+    nb_engines: Optional[int] = None,
+    default_max_plies: int = 200,
+    default_movetime_ms: int = 50,
+    require_select_best: bool = False,
+) -> Tuple[List[ValOpponent], List["chess.engine.SimpleEngine"]]:
+    """Open the per-epoch validation opponents of `train.args.val`, used by
+    both train.py and train_rl.py. `val_cfg` is either a single opponent
+    config or a list of them (None = no validation); entries with
+    nb_games <= 0 are skipped. Each entry's `log_name` (default:
+    engine_command's basename) must be unique - it prefixes that
+    opponent's logged metrics (see play_val_games()).
+
+    `select_best: true` marks the entry whose win rate should drive
+    checkpoint selection (train_rl.py's valLoss). A lone entry is selected
+    implicitly; more than one flagged entry is an error, and so is having
+    several entries with none flagged when `require_select_best` is set.
+    Returns (opponents, engines), engines being the list to close_engines()
+    afterwards.
+    """
+    if val_cfg is None:
+        val_cfg = []
+    elif hasattr(val_cfg, "keys"):
+        val_cfg = [val_cfg]
+
+    # Check the whole config before opening any engine process.
+    entries = []
+    for cfg in val_cfg:
+        if cfg.get("nb_games", 0) <= 0:
+            continue
+        engine_command = cfg.get("engine_command", "random")
+        log_name = cfg.get("log_name", None) or os.path.basename(engine_command)
+        if any(e["log_name"] == log_name for e in entries):
+            raise ValueError(f"Duplicate train.args.val log_name '{log_name}'")
+        entries.append({"log_name": log_name, "engine_command": engine_command, "cfg": cfg})
+
+    nb_selected = sum(bool(e["cfg"].get("select_best", False)) for e in entries)
+    if nb_selected > 1:
+        raise ValueError("train.args.val: at most one entry may set select_best: true")
+    if nb_selected == 0 and len(entries) > 1 and require_select_best:
+        raise ValueError(
+            "train.args.val has several opponents: set select_best: true on the one"
+            " whose win rate should pick the best checkpoint"
+        )
+
+    opponents, engines = [], []
+    try:
+        for e in entries:
+            cfg = e["cfg"]
+            move_getters, new_engines = make_opponents(
+                e["engine_command"],
+                dict(cfg.get("engine_uci_options", {}) or {}),
+                cfg.get("engine_movetime_ms", default_movetime_ms),
+                nb_engines,
+            )
+            engines.extend(new_engines)
+            opponents.append(
+                ValOpponent(
+                    log_name=e["log_name"],
+                    move_getters=move_getters,
+                    nb_games=cfg.get("nb_games"),
+                    max_plies=cfg.get("max_plies_per_game", default_max_plies),
+                    select_best=bool(cfg.get("select_best", False)) or len(entries) == 1,
+                )
+            )
+    except BaseException:
+        close_engines(engines)
+        raise
+    return opponents, engines
+
+
+def play_val_games(model: torch.nn.Module, opponent: ValOpponent, device: torch.device) -> Tuple[dict, str]:
+    """Play one validation opponent's greedy games. Returns (log_scalars,
+    summary): the metrics `<log_name>/val_win_rate`, `val_draw_rate`,
+    `val_loss_rate` and one `val_draw_<reason>_rate` per DRAW_REASONS
+    entry (fractions of all games, so the reasons sum to val_draw_rate),
+    plus a one-line human-readable summary for the console."""
+    trajectories = play_greedy_trajectories(
+        model=model,
+        opponent_move_getters=opponent.move_getters,
+        nb_games=opponent.nb_games,
+        device=device,
+        max_plies=opponent.max_plies,
+    )
+    nb_games = opponent.nb_games
+    results = [t.result for t in trajectories]
+    wins, draws, losses = results.count("win"), results.count("draw"), results.count("loss")
+    draw_reasons = Counter(t.termination for t in trajectories if t.result == "draw")
+
+    # Raw counts not logged: nb_games is fixed, so they're the same curves
+    # as the *_rate ones, just scaled.
+    prefix = opponent.log_name
+    log_scalars = {
+        f"{prefix}/val_win_rate": wins / nb_games,
+        f"{prefix}/val_draw_rate": draws / nb_games,
+        f"{prefix}/val_loss_rate": losses / nb_games,
+    }
+    for reason in DRAW_REASONS:
+        log_scalars[f"{prefix}/val_draw_{reason}_rate"] = draw_reasons[reason] / nb_games
+
+    summary = f"vs {prefix}: {wins} wins, {draws} draws, {losses} losses"
+    if draws:
+        summary += " (draws - " + ", ".join(f"{r}: {n}" for r, n in draw_reasons.most_common()) + ")"
+    return log_scalars, summary
 
 
 def close_engines(engines: List["chess.engine.SimpleEngine"]) -> None:

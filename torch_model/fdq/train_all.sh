@@ -33,14 +33,14 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 EXPERIMENTS=(
-	chess_cnn_p00
-	chess_cnn_p01
 	chess_fc_p00
 	chess_fc_p01
+	chess_cnn_p00
+	chess_cnn_p01
 	chess_rl_p00_random
-	chess_rl_p01_sunfish
+	chess_rl_p01_warmstart
 	chess_rl_p02_stockfish
-	chess_rl_p03_warmstart
+	chess_rl_p03_sunfish
 )
 
 if ! command -v fdq >/dev/null 2>&1; then
