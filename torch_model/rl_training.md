@@ -274,6 +274,51 @@ Config knobs worth knowing about (all in `train.args` in
   weight still learns. Required together with `init_weights_path` - see
   section 8, finding 4.
 
+### Why validation games were drawn (`val_draw_<reason>_rate`)
+
+For each validation opponent, `play_val_games()` in
+[rl_self_play.py](fdq/rl_self_play.py) logs one extra metric per entry of
+`DRAW_REASONS`: `<log_name>/val_draw_<reason>_rate`, the fraction of *all*
+that opponent's games that were drawn for that reason. The reasons add up to
+`val_draw_rate`. The console summary shows the same breakdown as counts
+(e.g. `(draws - fivefold_repetition: 6, max_plies: 2)`). Because the list is
+fixed, every reason is logged every epoch, even at zero, so the wandb curves
+have no gaps. Only validation is broken down like this. The training games
+and the test games (`rl_evaluator.py`) still report a single draw count.
+
+The reason is `board.outcome(claim_draw=True).termination` from python-chess,
+lower-cased, or `max_plies` if python-chess reports no outcome at all:
+
+| Reason | Meaning | Ends the game by itself? |
+| --- | --- | --- |
+| `max_plies` | Reached `max_plies_per_game` with no result and no claimable draw | Yes, but it's our own cutoff, not a chess rule |
+| `stalemate` | The side to move has no legal move and is not in check | Yes |
+| `insufficient_material` | Neither side can possibly checkmate (e.g. K vs K, K+B vs K, K+N vs K) | Yes |
+| `threefold_repetition` | The same position has occurred 3 times | No, only claimable |
+| `fifty_moves` | 50 moves per side (100 plies) with no capture or pawn move | No, only claimable |
+| `fivefold_repetition` | The same position has occurred 5 times | Yes |
+| `seventyfive_moves` | 75 moves per side (150 plies) with no capture or pawn move | Yes |
+
+**One subtlety about the claimable draws.** The game loop stops on
+`board.is_game_over()`, which does *not* claim draws. So a game keeps going
+after a threefold repetition or the 50-move point. It only stops at
+checkmate, an automatic draw, or `max_plies_per_game`. Draws are claimed
+once, at the end. What that means for the curves:
+
+- `threefold_repetition` and `fifty_moves` only show up in games that ran to
+  `max_plies_per_game` and could claim the draw in their **final**
+  position. A repetition earlier in the game that no longer applies at the
+  end is counted as `max_plies`.
+- `fivefold_repetition` is the usual label when the network shuffles pieces
+  back and forth instead of making progress. That is a typical failure of a
+  weak policy that wins material but can't deliver mate. A high rate against
+  `"random"` is the main sign to look for. Section 8, recommendation 3 (a
+  small draw penalty) targets exactly this.
+- `seventyfive_moves` needs 150 plies without a capture or pawn move, so it
+  is rare with the default 200-ply cap.
+- `stalemate` against a weak opponent usually means the network had a won
+  position and blundered it away at the end.
+
 ## 4.5) Evaluating a trained model (`mode.run_test_auto` / `run_test_interactive`)
 
 Running fdq's test mode against this config uses
