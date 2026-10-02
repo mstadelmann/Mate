@@ -20,7 +20,7 @@ models:
 
 train:
   args:
-    init_weights_path: "~/data_ML/results/Chess/chess_cnn_p01/20260930_03_20_44__hopeful_babbage/best_val_chessCNN_e298_temp_copy.fdqm"
+    init_weights_path: "~/data_ML/results/Chess/chess_cnn_p01/20260930_03_20_44__hopeful_babbage/best_val_chessCNN_e791_temp_copy.fdqm"
     freeze_batchnorm_stats: true # keep the supervised BatchNorm statistics
     engine_command: "random"
 

@@ -43,6 +43,21 @@ def fdq_train(experiment: fdqExperiment) -> None:
         nb_engines=experiment.cfg.train.args.get("nb_engines", None),
     )
 
+    # Optional train.args.lr_plateau: halve (factor) the learning rate once
+    # val_loss hasn't improved for `patience` epochs. Stepped here rather
+    # than via fdq's models.<name>.lr_scheduler, since fdq calls
+    # scheduler.step() without the val loss ReduceLROnPlateau needs. Not
+    # saved in fdq checkpoints - a resumed run starts it afresh.
+    plateau_cfg = experiment.cfg.train.args.get("lr_plateau", None)
+    plateau_scheduler = None
+    if plateau_cfg is not None:
+        plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            experiment.optimizers[model_name],
+            factor=plateau_cfg.get("factor", 0.5),
+            patience=plateau_cfg.get("patience", 5),
+            min_lr=plateau_cfg.get("min_lr", 0.0),
+        )
+
     try:
         for epoch in range(experiment.start_epoch, experiment.nb_epochs):
             experiment.on_epoch_start(epoch=epoch)
@@ -105,7 +120,10 @@ def fdq_train(experiment: fdqExperiment) -> None:
 
             # Logged to wandb/tensorboard by on_epoch_end() below (fdq adds
             # train_loss / val_loss / epoch itself).
-            log_scalars = {}
+            log_scalars = {"lr": experiment.optimizers[model_name].param_groups[0]["lr"]}
+            if plateau_scheduler is not None:
+                plateau_scheduler.step(experiment.valLoss)
+
             for opp in games_opponents:
                 opp_scalars, summary = play_val_games(model, opp, experiment.device)
                 log_scalars.update(opp_scalars)

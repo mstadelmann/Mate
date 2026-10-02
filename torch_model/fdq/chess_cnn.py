@@ -19,6 +19,7 @@ class ChessCNN(nn.Module):
         nb_in_channels: int = 16,
         conv_channels: Optional[List[int]] = None,
         kernel_size: int = 3,
+        dropout: float = 0.0,
     ) -> None:
         super().__init__()
         if conv_channels is None:
@@ -34,11 +35,15 @@ class ChessCNN(nn.Module):
             in_ch = out_ch
 
         self.backbone = nn.Sequential(*layers)
+        # Regularization against overfitting the supervised training games.
+        # No weights, so checkpoints load with or without it (e.g. the RL
+        # warm start), and it's a no-op in eval() mode / the ONNX export.
+        self.dropout = nn.Dropout(dropout)
         self.from_head = nn.Conv2d(in_ch, 1, kernel_size=1)
         self.to_head = nn.Conv2d(in_ch, 1, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        features = self.backbone(x)
+        features = self.dropout(self.backbone(x))
         from_logits = self.from_head(features).flatten(1)
         to_logits = self.to_head(features).flatten(1)
         return from_logits, to_logits

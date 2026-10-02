@@ -12,3 +12,4 @@ globals:
 train:
   args:
     engine_command: "sunfish-uci"
+    draw_reward: 0.0 # a draw against Sunfish is a good result, don't penalize it

@@ -8,7 +8,9 @@
 #   - `fdq` on PATH: pip install -r torch_model/fdq/requirements.txt
 #   - the supervised configs' .chessarray datasets already generated (see
 #     torch_model/torch_model.md section 1); chess_cnn_p01/chess_fc_p01 need
-#     the larger nbGames10000 dataset specifically.
+#     the larger nbGames10000 dataset, p02/p03 the nbGames50000/nbGames100000
+#     ones (data_preparation/chess_tensor_config_50k.yaml / _100k.yaml -
+#     p03 holds its ~25 GB training set in RAM).
 #   - chess_rl_p01_sunfish needs Sunfish installed (`pip install sunfish`);
 #     chess_rl_p02_stockfish needs a real Stockfish binary - see
 #     torch_model/rl_training.md section 3 for both.
@@ -35,8 +37,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXPERIMENTS=(
 	chess_fc_p00
 	chess_fc_p01
+	chess_fc_p02
+	chess_fc_p03
 	chess_cnn_p00
 	chess_cnn_p01
+	chess_cnn_p02
+	chess_cnn_p03
 	chess_rl_p00_random
 	chess_rl_p01_warmstart
 	chess_rl_p02_stockfish

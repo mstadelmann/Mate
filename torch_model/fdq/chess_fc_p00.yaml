@@ -37,10 +37,14 @@ models:
       nb_in_channels: 16
       board_size: 8
       hidden_dims: [1024, 512]
+      dropout: 0.3 # before the heads; against overfitting (val loss rose from epoch 2-10 on)
     optimizer:
-      class_name: "torch.optim.Adam"
+      # AdamW = Adam with decoupled weight decay (here AdamW's own default,
+      # 0.01) - plain Adam's weight_decay is much weaker with adaptive LRs.
+      class_name: "torch.optim.AdamW"
       args:
         lr: 0.001
+        weight_decay: 0.01
 
 train:
   path: "~/dev/Mate/torch_model/fdq/train.py"
@@ -50,7 +54,15 @@ train:
     use_GPU: true
     use_AMP: false
     accumulate_grad_batches: 1
-    early_stop_val_loss: 50
+    # Stop after 15 epochs without a new best val loss - with the
+    # held-out validation games it peaks within ~10 epochs, so 50 only
+    # wasted time. Leaves room for 2 LR halvings by lr_plateau below.
+    early_stop_val_loss: 15
+    # Halve the LR after 5 epochs without a new best val loss - see train.py.
+    lr_plateau:
+      factor: 0.5
+      patience: 5
+      min_lr: 0.00001
     early_stop_train_loss: 50
     early_stop_nan: 5
     nb_engines: null # parallel engine processes playing the train/val games; null = one per CPU core

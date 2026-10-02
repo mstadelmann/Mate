@@ -24,6 +24,7 @@ class ChessFC(nn.Module):
         nb_in_channels: int = 16,
         board_size: int = 8,
         hidden_dims: Optional[List[int]] = None,
+        dropout: float = 0.0,
     ) -> None:
         super().__init__()
         if hidden_dims is None:
@@ -37,11 +38,16 @@ class ChessFC(nn.Module):
             in_dim = out_dim
 
         self.backbone = nn.Sequential(*layers)
+        # Regularization against overfitting the supervised training games.
+        # Kept outside `backbone` so its layer indices - and so the
+        # state_dict keys of existing checkpoints - stay unchanged; no
+        # weights, and a no-op in eval() mode / the ONNX export.
+        self.dropout = nn.Dropout(dropout)
         self.from_head = nn.Linear(in_dim, board_size * board_size)
         self.to_head = nn.Linear(in_dim, board_size * board_size)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        features = self.backbone(x)
+        features = self.dropout(self.backbone(x))
         from_logits = self.from_head(features)
         to_logits = self.to_head(features)
         return from_logits, to_logits

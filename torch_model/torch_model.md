@@ -68,7 +68,7 @@ promotion for ML moves, matching `chess::applyMove`'s own default.
 
 ### Configuration
 
-- **Config file:** YAML at [torch_model/data_preparation/chess_tensor_config.yaml](data_preparation/chess_tensor_config.yaml) (JSON also supported).
+- **Config files:** YAML in [torch_model/data_preparation/](data_preparation/) (JSON also supported), one per dataset size, named after `number_of_games`: [chess_tensor_config_2k.yaml](data_preparation/chess_tensor_config_2k.yaml), [_10k](data_preparation/chess_tensor_config_10k.yaml), [_50k](data_preparation/chess_tensor_config_50k.yaml) and [_100k](data_preparation/chess_tensor_config_100k.yaml). They differ only in `number_of_games`.
 - **Fields:**
 	- **`hf_dataset_name`:** Hugging Face dataset id to stream from.
 	- **`number_of_games`:** Number of games to sample after filtering.
@@ -85,7 +85,7 @@ promotion for ML moves, matching `chess::applyMove`'s own default.
 ```bash
 pip install -r torch_model/fdq/requirements.txt
 cd torch_model/data_preparation
-python3 generate_chess_tensor.py --config chess_tensor_config.yaml
+python3 generate_chess_tensor.py --config chess_tensor_config_2k.yaml
 ```
 
 This writes `<dataset>_nbGames{N}_minElo{E}_train.chessarray` and
@@ -111,13 +111,14 @@ export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
 or persisted across shells via `~/.bashrc` / `~/.zshrc`, or once via
 `huggingface-cli login` (stores it under `~/.cache/huggingface/token`, no
 env var needed afterward). Don't put the token in
-`chess_tensor_config.yaml` or commit it anywhere.
+a `chess_tensor_config_*.yaml` or commit it anywhere.
 
 **Notes**
 
-- `number_of_games` in the shipped config is intentionally small (a few
-  thousand) so the pipeline is fast to validate end-to-end without a GPU;
-  raise it substantially for an actual training run on a GPU machine.
+- `chess_tensor_config_2k.yaml` is intentionally small (2000 games) so the
+  pipeline is fast to validate end-to-end without a GPU; use the larger
+  ones for an actual training run on a GPU machine (the 100k one needs
+  ~25 GB disk and ~50 GB RAM while generating).
 - Splitting is done by game, not by position, so no single game's
   positions leak between the train and test sets.
 
@@ -177,10 +178,11 @@ def fdq_train(experiment: fdqExperiment) -> None:
 
 Inside `fdq_train`:
 
-- `experiment.data["CHESS"]` provides `train_data_loader` and `val_data_loader` built by `chess_preparator.py`.
+- `experiment.data["CHESS"]` provides `train_data_loader` and `val_data_loader` built by `chess_preparator.py`. The validation set is `val_ratio` of the training file's *games* (whole games, fixed seed `val_split_seed`), excluded from training. Before 2026-10-01 it was a random subset of positions that were also trained on, so older `val_loss` curves and `best_val` checkpoints are not meaningful - see [rl_training.md](rl_training.md) section 9.
 - `experiment.models[model_name]` is the instantiated PyTorch model, returning `(from_logits, to_logits)` - `model_name` comes from `train.args.model_name` (e.g. `"chessCNN"` in `chess_cnn_p00.yaml`, `"chessFC"` in `chess_fc_p00.yaml`), so the same `train.py` trains either architecture unchanged.
 - Per batch: run the model, compute `ce_from(from_logits, from_label) + ce_to(to_logits, to_label)`, backward, `experiment.update_gradients(...)`.
 - After each epoch, compute average train/val loss and call `experiment.on_epoch_end()` for logging, checkpointing and early stopping.
+- Regularization (since 2026-10-02, after the held-out validation showed overfitting from epoch 2-10 on): `dropout: 0.3` before the heads (`ChessCNN`/`ChessFC` arg), AdamW with `weight_decay: 0.01`, `train.args.lr_plateau` (halve the LR after 5 epochs without a new best val loss - stepped in `train.py`, since fdq's own `lr_scheduler` hook can't pass the val loss; the LR is logged as `lr`), and `early_stop_val_loss: 15` instead of 50. All set in `chess_cnn_p00.yaml` / `chess_fc_p00.yaml` and inherited by p01-p03 (10k / 50k / 100k games).
 
 ### 2.3 Running a local training
 

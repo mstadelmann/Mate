@@ -19,7 +19,14 @@ import torch
 from fdq.experiment import fdqExperiment
 from fdq.ui_functions import iprint, startProgBar
 
-from rl_self_play import close_engines, make_opponents, make_val_opponents, play_games, play_val_games
+from rl_self_play import (
+    GameTrajectory,
+    close_engines,
+    make_opponents,
+    make_val_opponents,
+    play_games,
+    play_val_games,
+)
 
 
 def load_init_weights(experiment: fdqExperiment, model: torch.nn.Module, init_weights_path: str) -> None:
@@ -51,11 +58,54 @@ def load_init_weights(experiment: fdqExperiment, model: torch.nn.Module, init_we
     model.load_state_dict(state_dict, strict=True)
 
 
+def move_returns(
+    trajectory: GameTrajectory,
+    gamma: float,
+    material_reward_scale: float,
+    draw_reward: float,
+    stalemate_when_ahead_reward: float,
+) -> torch.Tensor:
+    """Discounted return G_t of each network move t of one game.
+
+    Per-move reward r_t: the material balance change from just before
+    move t to just before the network's next move (i.e. including the
+    opponent's reply), times material_reward_scale - so winning a piece or
+    walking into a capture is credited to the move that caused it, not
+    smeared over the whole game. The game result is added to the last
+    move's reward: +1 win, -1 loss, draw_reward for a draw, or
+    stalemate_when_ahead_reward for a stalemate while ahead on material
+    (the typical "won the material, couldn't mate" failure).
+    G_t = r_t + gamma * G_{t+1}.
+    """
+    materials = trajectory.materials
+    rewards = [material_reward_scale * (materials[t + 1] - materials[t]) for t in range(len(trajectory.log_probs))]
+
+    if trajectory.result == "win":
+        final_reward = 1.0
+    elif trajectory.result == "loss":
+        final_reward = -1.0
+    elif trajectory.termination == "stalemate" and materials[-1] > 0:
+        final_reward = stalemate_when_ahead_reward
+    else:
+        final_reward = draw_reward
+    rewards[-1] += final_reward
+
+    returns = []
+    running = 0.0
+    for reward in reversed(rewards):
+        running = reward + gamma * running
+        returns.append(running)
+    return torch.tensor(returns[::-1], dtype=torch.float32)
+
+
 def fdq_train(experiment: fdqExperiment) -> None:
     """Train chessRL via self-play against a fixed opponent, using
     REINFORCE (Monte Carlo policy gradient) - the simplest policy-gradient
     RL algorithm there is: play a game, then nudge every move the network
-    made up (if it won) or down (if it lost), all by the same amount.
+    made up (if it won) or down (if it lost). Optionally (see the
+    gamma/material_reward_scale/draw_reward/use_baseline/entropy_coef
+    knobs in rl_training.md section 4) with per-move material rewards, a
+    batch-mean baseline and an entropy bonus.
 
     No value network, no MCTS, no replay buffer - see rl_training.md for
     why those are the "usual" extra pieces (they mainly help you learn
@@ -78,6 +128,15 @@ def fdq_train(experiment: fdqExperiment) -> None:
     games_per_epoch: int = args.get("games_per_epoch", 100)
     games_per_update: int = args.get("games_per_update", 8)
     max_plies_per_game: int = args.get("max_plies_per_game", 200)
+    # Reward shaping and variance reduction - see move_returns() and the
+    # update below. All default to the plain REINFORCE of rl_training.md
+    # section 1 (game result only, no baseline, no entropy bonus).
+    gamma: float = args.get("gamma", 1.0)
+    material_reward_scale: float = args.get("material_reward_scale", 0.0)
+    draw_reward: float = args.get("draw_reward", 0.0)
+    stalemate_when_ahead_reward: float = args.get("stalemate_when_ahead_reward", draw_reward)
+    use_baseline: bool = args.get("use_baseline", False)
+    entropy_coef: float = args.get("entropy_coef", 0.0)
     engine_command: str = args.engine_command
     # Passed straight through to the engine's UCI `setoption` command, e.g.
     # {"Skill Level": 0} for Stockfish. Not every engine has a strength
@@ -152,6 +211,8 @@ def fdq_train(experiment: fdqExperiment) -> None:
             else:
                 model.train()
             epoch_loss_sum = 0.0
+            epoch_entropy_sum = 0.0
+            epoch_return_sum = 0.0
             nb_updates = 0
             wins = losses = draws = 0
 
@@ -173,7 +234,6 @@ def fdq_train(experiment: fdqExperiment) -> None:
                 # network forward passes, engines thinking in parallel) -
                 # they all use the same weights, as REINFORCE requires,
                 # since the update only happens after the whole batch.
-                game_losses = []
                 trajectories = play_games(
                     model=model,
                     opponent_move_getters=opponent_move_getters,
@@ -184,45 +244,59 @@ def fdq_train(experiment: fdqExperiment) -> None:
                     device=experiment.device,
                     max_plies=max_plies_per_game,
                 )
-                for trajectory in trajectories:
-                    if trajectory.result == "win":
-                        wins += 1
-                        game_return = 1.0
-                    elif trajectory.result == "loss":
-                        losses += 1
-                        game_return = -1.0
-                    else:
-                        draws += 1
-                        game_return = 0.0
-
-                    if trajectory.log_probs:
-                        # The core of REINFORCE, in one line: take the
-                        # average log-probability the network assigned to
-                        # the moves *it actually played* this game, and
-                        # scale it by the game's outcome (+1 / -1 / 0).
-                        # Negated because torch optimizers *minimize* a
-                        # loss, and we want to *maximize* return-weighted
-                        # log-probability - minimizing its negative is the
-                        # same thing. A draw (game_return=0) contributes
-                        # nothing to learn from under this simplest
-                        # possible reward scheme - see rl_training.md for
-                        # how you could change that.
-                        mean_log_prob = torch.stack(trajectory.log_probs).mean()
-                        game_losses.append(-game_return * mean_log_prob)
+                wins += sum(t.result == "win" for t in trajectories)
+                losses += sum(t.result == "loss" for t in trajectories)
+                draws += sum(t.result == "draw" for t in trajectories)
 
                 games_played += batch_size
                 pbar.update(games_played)
 
-                if not game_losses:
-                    continue  # every game in this batch was a draw; nothing to update on
+                played = [t for t in trajectories if t.log_probs]
+                if not played:
+                    continue  # network made no move in any game (can't happen from the initial position)
 
-                batch_loss = torch.stack(game_losses).mean()
+                # One return per network move (see move_returns()), so a
+                # move is judged by what happened *after* it, not by the
+                # whole game's result.
+                returns = [
+                    move_returns(t, gamma, material_reward_scale, draw_reward, stalemate_when_ahead_reward).to(
+                        experiment.device
+                    )
+                    for t in played
+                ]
+                # Baseline: subtract the batch's mean return, so a move is
+                # pushed up only if it did *better than usual*, down only
+                # if worse. Without it, a batch of all-lost games (every
+                # return -1) pushes down every sampled move - the reason the
+                # Stockfish/Sunfish runs only got worse (rl_training.md
+                # section 8). It doesn't change the expected gradient, only
+                # its variance.
+                baseline = torch.cat(returns).mean() if use_baseline else 0.0
+
+                # The core of REINFORCE: the log-probability of each move
+                # the network *actually played*, scaled by its advantage
+                # (return - baseline), averaged over the game's moves.
+                # Negated because torch optimizers *minimize* a loss, and
+                # we want to *maximize* advantage-weighted log-probability.
+                # The entropy bonus rewards keeping several moves likely,
+                # so the policy keeps exploring instead of collapsing onto
+                # one move per position.
+                game_losses = []
+                entropies = []
+                for t, game_returns in zip(played, returns):
+                    log_probs = torch.stack(t.log_probs)
+                    game_losses.append(-((game_returns - baseline) * log_probs).mean())
+                    entropies.append(torch.stack(t.entropies).mean())
+                mean_entropy = torch.stack(entropies).mean()
+                batch_loss = torch.stack(game_losses).mean() - entropy_coef * mean_entropy
 
                 optimizer.zero_grad()
                 batch_loss.backward()
                 optimizer.step()
 
                 epoch_loss_sum += batch_loss.detach().item()
+                epoch_entropy_sum += mean_entropy.detach().item()
+                epoch_return_sum += sum(r[0].item() for r in returns) / len(returns)
                 nb_updates += 1
 
             pbar.finish()
@@ -248,6 +322,12 @@ def fdq_train(experiment: fdqExperiment) -> None:
                 "win_rate": win_rate,
                 "draw_rate": draw_rate,
                 "loss_rate": loss_rate,
+                # Mean entropy of the policy over the legal moves (nats) -
+                # near 0 means it has collapsed onto one move per position.
+                "policy_entropy": epoch_entropy_sum / max(nb_updates, 1),
+                # Mean return of a game's first move, i.e. the whole
+                # (discounted, shaped) game - rises as play improves.
+                "mean_return": epoch_return_sum / max(nb_updates, 1),
             }
 
             if val_opponents:

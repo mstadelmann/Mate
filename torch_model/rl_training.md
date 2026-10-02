@@ -240,9 +240,9 @@ loss, so `best_train` checkpoints are *not* meaningful here - use
 Once that win rate against `"random"` sits comfortably above 50% for a
 while, move up to a tougher opponent. In the measured runs (section 8),
 Sunfish and Stockfish Skill Level 5 were both far too strong (zero
-training wins in 50k games), so the next step should be Stockfish
-Skill Level 0 - and ideally start from the supervised model instead of
-from scratch (section 7; p01-p03 already do).
+training wins in 50k games), so p02 now trains against Stockfish
+Skill Level 0 with a 10ms movetime, warm-started from the supervised
+model (section 7; p01-p03 all are).
 
 Config knobs worth knowing about (all in `train.args` in
 [chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml)):
@@ -273,6 +273,30 @@ Config knobs worth knowing about (all in `train.args` in
   `eval()` mode, so BatchNorm's running statistics stay fixed while every
   weight still learns. Required together with `init_weights_path` - see
   section 8, finding 4.
+
+The learning signal (`move_returns()` and the update in
+[train_rl.py](fdq/train_rl.py)) has its own knobs. Their defaults in code
+give back the plain REINFORCE of section 1. The configs turn them on
+(section 8, recommendation 3):
+
+- `material_reward_scale` (0.02): per-move reward per pawn of material
+  won, measured from just before a network move to just before its next
+  one, so the opponent's reply counts too. Hanging a queen costs 0.18 on
+  that move instead of being smeared over the whole game.
+- `draw_reward` (-0.2 vs random, 0 vs Stockfish/Sunfish) and
+  `stalemate_when_ahead_reward` (-0.5): added to the last move instead of
+  the win's +1 / loss's -1. Both push the network to actually mate.
+- `gamma` (0.99): discount per network move, so a move is judged mostly
+  by what happened soon after it.
+- `use_baseline` (true): subtract the update batch's mean return, so a
+  move is reinforced only if it did better than usual. With all-lost
+  batches this stops REINFORCE from blindly pushing down every move.
+- `entropy_coef` (0.01): entropy bonus that keeps the policy exploring.
+  Logged as `policy_entropy`, next to `mean_return`.
+
+An opponent engine that returns no move (Sunfish resigns, or plays
+`bestmove (none)`) ends that game as a win for the network, with
+termination `resignation`. Before, this crashed the run.
 
 ### Why validation games were drawn (`val_draw_<reason>_rate`)
 
@@ -388,11 +412,11 @@ AlphaZero-style approaches):
   engines search several moves ahead during both training and play, using
   the network to guide that search. Here the network's raw move
   probabilities are used directly - much simpler, much weaker.
-- **No value network / no baseline.** As noted in section 1, every move in
-  a game gets the same credit/blame. A value network (predicting "how
-  good is this position for me") lets you compute a per-move *advantage*
-  instead, which is a much less noisy learning signal - a natural next
-  step if you want to extend this.
+- **No value network.** There is only a crude baseline (the batch's mean
+  return, `use_baseline`) and material-based per-move rewards (section 4).
+  A value network (predicting "how good is this position for me") would
+  give a per-position baseline and a much less noisy *advantage* - a
+  natural next step if you want to extend this.
 - **No replay buffer.** Every batch of games is played fresh and then
   discarded after one gradient step; nothing is reused or prioritized.
 - **Promotion is simplified**, same as everywhere else in this project:
@@ -467,8 +491,9 @@ section 8, recommendation 2.
 p01-p03 also lower the learning rate to `1e-4` (p00: `3e-4`), to
 fine-tune rather than overwrite the supervised knowledge. p03 also plays
 100 test games instead of 50, for a less noisy final score. (Validation
-is the same for every RL config - and the supervised ones: 20 games each
-vs random, Stockfish Skill Level 0 and Sunfish, with the random win rate
+is the same for every RL config: 100 games vs random and 20 each vs
+Stockfish Skill Level 0 and Sunfish - the supervised configs play 20 vs
+random too - with the random win rate
 picking the "best" checkpoint - see `train.args.val` in
 chess_rl_p00_random.yaml.) Since p03 starts from a model that
 already wins ~68% vs random, it's the cleanest measure of what RL adds on
@@ -536,7 +561,9 @@ untrained.
    training win rate is above ~30-50%. Drop Sunfish from the curriculum.
    Self-play against past copies of the network is an alternative that
    keeps the opponent roughly as strong as the network.
-3. **A better learning signal.** Subtract a baseline (running mean of
+3. **A better learning signal.** ✅ Implemented (except the Stockfish
+   evaluation reward), see the learning-signal knobs in section 4.
+   Subtract a baseline (running mean of
    returns, or a value head) to get an advantage; add per-move rewards
    (material change, or better, the change in Stockfish's evaluation after
    each move - by far the biggest credit-assignment improvement); add a
@@ -549,7 +576,8 @@ untrained.
 5. **A joint move head.** A 64×64 (4096) from-to output, or AlphaZero's
    73×64. This changes the ONNX output contract and
    [src/chess_ML.cpp](../src/chess_ML.cpp).
-6. **Proper evaluation.** 100+ validation games, testing against
+6. **Proper evaluation.** (Partly done: 100 validation games vs random,
+   the opponent that picks the best checkpoint.) 100+ validation games, testing against
    Stockfish Skill 0-3 instead of only random, possibly `test_model: last`.
 
 A pragmatic alternative to most of the above: train the network
@@ -557,3 +585,111 @@ A pragmatic alternative to most of the above: train the network
 positions). That is much cheaper and more reliable than REINFORCE, and is
 how most decent small chess networks are made - RL is then a fine-tuning
 step on top.
+
+## 9) Second training batch: analysis and fixes (2026-10-01 21:46 UTC)
+
+Analysis of the `train_all.sh` batch of 2026-09-29 to 2026-10-01
+(wandb project `stmd/ChessMate`, runs `0tn7lug2` to `7b0mymjr`; results
+under `~/data_ML/results/Chess/`, logs in
+`fdq/logs/train_all_20260929_210523/`), and the fixes made as a result.
+All rates are greedy validation games, averaged over the last quarter of
+each run.
+
+### Results
+
+| Run | vs random W | vs Stockfish Skill 0 W / L | vs Sunfish W / L | Notes |
+| --- | --- | --- | --- | --- |
+| fc_p00 | 0.22 | 0 / 1.00 | 0 / 0.82 | 40-60% of games vs random hit `max_plies` |
+| fc_p01 | 0.31 | 0 / 1.00 | 0 / 0.87 | |
+| cnn_p00 | 0.39 | 0 / 1.00 | 0 / 0.81 | up to 75% of games vs random end in stalemate |
+| cnn_p01 | 0.65 | 0.005 / 0.97 | 0.007 / 0.79 | test move accuracy 0.27 |
+| rl_p00_random | 0.77 | 0 / 1.00 | 0 / 0.90 | the only run with a clear upward trend |
+| rl_p01_warmstart | 0.82 | 0 / 1.00 | 0 / 0.92 | |
+| rl_p02_stockfish | 0.58 (falling from 0.66) | 0 / 0.96 | 0 / 0.90 | lost **every** training game (Skill 5), all 500 epochs |
+| rl_p03_sunfish | 0.66 | 0 / 0.97 | 0 / 0.90 | lost ~100% of training games, crashed at epoch 95 |
+
+No model beats a real engine. RL learns to beat a random mover and
+nothing more, and RL against a real engine makes the model *worse*.
+
+### Findings
+
+1. **No learning signal against Stockfish/Sunfish.** `rl_p02` had
+   `win_rate = draw_rate = 0` in every epoch. With rewards of only
+   +1/0/-1 and no baseline, every update pushes down whichever moves were
+   sampled, so the win rate against random drifts down. Its training
+   opponent was Skill Level 5, although the model already loses 96% vs
+   Skill 0. The policy was also nearly deterministic: the mean
+   log-probability of the played moves was about -1.0, against about -3.4
+   for uniform play over the legal moves.
+2. **Validation loss was training loss.** `chess_preparator.py` trained on
+   the full training file and drew the validation positions from that
+   same file. That's why `val_loss < train_loss` in every supervised run,
+   and why `best_val` picked the most memorized checkpoint - the one the
+   RL warm start then used. cnn_p00 had the *lowest* val loss (0.0015 vs
+   0.009 for cnn_p01) but played worse (0.39 vs 0.65 vs random). A
+   position-level split would leak too, since consecutive positions of
+   one game are nearly identical.
+3. **The supervised models never learned to mate.** Players above 1800 Elo
+   resign long before checkmate, so the human games contain almost no
+   mating sequences. The models win material and then stalemate or
+   repeat moves - stalemate and fivefold repetition are most of the draws
+   vs random.
+4. **Model and input are weak.** 0.27M parameters, 4 conv layers, the
+   factorized `from_logit + to_logit` move score (section 8, finding 5),
+   and no move history (repetitions are invisible), en-passant square or
+   50-move counter in the input.
+5. **Validation too noisy for checkpoint selection.** 20 games give a
+   standard error of about ±0.11; the val curves swing between 0.1 and
+   0.65 epoch to epoch, so `select_best` mostly picks a lucky epoch.
+6. **Crash on a resigning engine.** Sunfish's `engine.play(...).move` can be
+   `None` (resignation, or `bestmove (none)`); `board.push(None)` raised
+   `AttributeError` and ended `rl_p03_sunfish` after 4 hours.
+
+### Fixes made
+
+| Problem | Fix | Where |
+| --- | --- | --- |
+| Validation leaked into training (finding 2) | Hold out `val_ratio` of whole *games*, excluded from training, fixed seed (`val_split_seed`, default 0). New datasets store a per-position `game_array`; older `.chessarray` files get game starts detected by matching the initial position. 2k dataset: 1710 / 190 games, 106529 / 12050 positions | [chess_preparator.py](fdq/chess_preparator.py), [generate_chess_tensor.py](data_preparation/generate_chess_tensor.py) |
+| Engine returning no move (finding 6) | A `None` move or resignation ends the game as a win for the network, termination `resignation` | [rl_self_play.py](fdq/rl_self_play.py) |
+| Noisy checkpoint selection (finding 5) | 100 validation games vs random (the `select_best` opponent) instead of 20 | [chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml) |
+| No learning signal (finding 1) | Per-move material reward, discounted returns, batch-mean baseline, entropy bonus, draw and stalemate-when-ahead penalties - see the learning-signal knobs in section 4 | [train_rl.py](fdq/train_rl.py) (`move_returns()`), [chess_rl_p00_random.yaml](fdq/chess_rl_p00_random.yaml) |
+| Training opponent too strong (finding 1) | p02 trains vs Stockfish Skill 0, 10ms per move (was Skill 5); p02/p03 use `draw_reward: 0` | [chess_rl_p02_stockfish.yaml](fdq/chess_rl_p02_stockfish.yaml), [chess_rl_p03_sunfish.yaml](fdq/chess_rl_p03_sunfish.yaml) |
+
+New wandb curves for the RL runs: `policy_entropy` (nats; near 0 means
+the policy collapsed onto one move per position) and `mean_return` (mean
+shaped return of a whole game).
+
+Verified with a 2-epoch `chess_rl_p02_stockfish` run (16 games per epoch):
+trains without errors, but the network still lost all 16 training games
+vs Skill 0 - with the material reward and baseline those games now give
+a learning signal, whether that is enough shows only in a full run.
+
+### Before the next `train_all.sh` run
+
+- **Retrain the supervised models first.** Every existing `best_val`
+  checkpoint was selected on the leaked validation set, including
+  `chess_cnn_p01/20260930_03_20_44__hopeful_babbage/best_val_chessCNN_e791`,
+  which p01-p03 warm-start from. After retraining `chess_cnn_p01`, update
+  `init_weights_path` in
+  [chess_rl_p01_warmstart.yaml](fdq/chess_rl_p01_warmstart.yaml) by hand -
+  `train_all.sh` runs everything in one go, so the RL runs would otherwise
+  still start from the old checkpoint.
+- **Supervised validation loss will look worse.** It is now an honest
+  held-out number, not a regression; training also uses 10% fewer
+  positions.
+- **RL `train_loss` and `mean_return` are not comparable to earlier runs** -
+  the reward changed.
+
+### Still open, by expected impact
+
+1. **Supervised training on Stockfish labels** (best move and evaluation)
+   instead of human moves - teaches tactics and mating, which the human
+   games don't contain. Plus a value head, and a 1-2 ply search at
+   inference.
+2. **Stockfish evaluation change as the per-move reward** instead of
+   material.
+3. **Architecture:** 6-10 residual blocks of 64-128 channels, a joint move
+   head (section 8, recommendation 5), and the last few positions in the
+   input.
+4. **Mixed opponents** (random plus Stockfish Skill 0) until the training
+   loss rate against Stockfish drops below ~90%.

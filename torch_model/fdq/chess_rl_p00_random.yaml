@@ -58,6 +58,17 @@ train:
     # pretrained statistics - see rl_training.md section 8.
     freeze_batchnorm_stats: false
 
+    # Learning signal - see move_returns() in train_rl.py and
+    # rl_training.md section 4. Setting all of these to their "off" values
+    # (gamma 1, scale 0, rewards 0, no baseline, coef 0) gives back plain
+    # game-result REINFORCE.
+    gamma: 0.99 # discount per network move: credit decays with distance from the result
+    material_reward_scale: 0.02 # per-move reward per pawn of material won (queen = 0.18)
+    draw_reward: -0.2 # < 0 pushes the network to actually finish won games
+    stalemate_when_ahead_reward: -0.5 # stalemating a beaten opponent is nearly a loss
+    use_baseline: true # subtract the batch's mean return (advantage instead of raw return)
+    entropy_coef: 0.01 # entropy bonus, keeps the policy exploring
+
     engine_command: "random"
     engine_uci_options: {} # UCI setoption params; empty for "random"/Sunfish, e.g. {"Skill Level": 0} for Stockfish
     engine_movetime_ms: 50 # per-move think time cap; ignored for "random"
@@ -68,10 +79,12 @@ train:
     # the one whose win rate picks the best_val checkpoint and drives early
     # stopping. p01-p03 inherit this list unchanged via `defaults:` - a
     # child overriding val: must restate the whole list (Hydra replaces
-    # lists, it can't override single entries).
+    # lists, it can't override single entries). rdm plays 100 games (cheap,
+    # no engine process): with 20, one game is 5 points of win rate and
+    # the "best" checkpoint is mostly a lucky epoch.
     val:
       - log_name: rdm
-        nb_games: 20
+        nb_games: 100
         max_plies_per_game: 200
         engine_command: "random"
         select_best: true

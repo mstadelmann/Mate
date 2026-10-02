@@ -209,7 +209,7 @@ def generate_tensors(
     games: List[Tuple[str, int, int]],
     max_plies_per_game: Optional[int],
     debug: bool,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Parse each game's movetext and emit one training example per ply, for
     both White and Black moves.
 
@@ -217,10 +217,13 @@ def generate_tensors(
         board_in_array: (N, 16, 8, 8)
         from_array: (N,) canonicalized "from" square index, 0-63
         to_array: (N,) canonicalized "to" square index, 0-63
+        game_array: (N,) index of the game each position comes from, so
+            training can hold out whole games for validation
     """
     board_in: List[np.ndarray] = []
     from_labels: List[int] = []
     to_labels: List[int] = []
+    game_labels: List[int] = []
 
     tot_moves = 0
     for game_idx, (movetext, white_elo, black_elo) in enumerate(games):
@@ -243,6 +246,7 @@ def generate_tensors(
             board_in.append(in_array)
             from_labels.append(from_idx)
             to_labels.append(to_idx)
+            game_labels.append(game_idx)
 
             if debug:
                 print("-----------------------------------------")
@@ -267,11 +271,12 @@ def generate_tensors(
     board_in_array = np.array(board_in, dtype=np.float32)
     from_array = np.array(from_labels, dtype=np.int64)
     to_array = np.array(to_labels, dtype=np.int64)
+    game_array = np.array(game_labels, dtype=np.int64)
 
     print(f"\nGenerated {board_in_array.shape[0]} positions from {len(games)} games "
           f"(both colors included).")
 
-    return board_in_array, from_array, to_array
+    return board_in_array, from_array, to_array, game_array
 
 
 def save_tensor(
@@ -283,6 +288,7 @@ def save_tensor(
     in_array: np.ndarray,
     from_array: np.ndarray,
     to_array: np.ndarray,
+    game_array: np.ndarray,
     ext: str = "chessarray",
 ) -> str:
     """Serialize one split to a pickle file and return the path."""
@@ -296,7 +302,13 @@ def save_tensor(
     os.makedirs(output_dir, exist_ok=True)
     with open(out_path, "wb") as fn:
         pickle.dump(
-            {"in_array": in_array, "from_array": from_array, "to_array": to_array}, fn
+            {
+                "in_array": in_array,
+                "from_array": from_array,
+                "to_array": to_array,
+                "game_array": game_array,
+            },
+            fn,
         )
     print("saving done")
     return out_path
@@ -341,20 +353,20 @@ def main():
 
     print(f"Split: {len(train_games)} train games, {len(test_games)} test games")
 
-    train_in, train_from, train_to = generate_tensors(train_games, max_plies_per_game, debug)
+    train_in, train_from, train_to, train_game = generate_tensors(train_games, max_plies_per_game, debug)
 
     if EXPORT_PICKLE:
         save_tensor(
             output_dir, hf_dataset_name, number_of_games, min_elo, "train",
-            train_in, train_from, train_to,
+            train_in, train_from, train_to, train_game,
         )
 
     if test_games:
-        test_in, test_from, test_to = generate_tensors(test_games, max_plies_per_game, debug)
+        test_in, test_from, test_to, test_game = generate_tensors(test_games, max_plies_per_game, debug)
         if EXPORT_PICKLE:
             save_tensor(
                 output_dir, hf_dataset_name, number_of_games, min_elo, "test",
-                test_in, test_from, test_to,
+                test_in, test_from, test_to, test_game,
             )
 
     if debug:

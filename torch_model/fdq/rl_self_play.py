@@ -29,7 +29,7 @@ from chess_encoding import board_to_array, legal_move_candidates
 # below) or, for the zero-dependency "random" opponent tier, is just
 # random_move_getter directly. Keeping it as a plain callable means the
 # game loop itself doesn't need to know anything about UCI engines.
-MoveGetter = Callable[[chess.Board], chess.Move]
+MoveGetter = Callable[[chess.Board], Optional[chess.Move]]
 
 
 @dataclass
@@ -39,14 +39,23 @@ class GameTrajectory:
     `log_probs` has one entry per move the *network* made (not the
     opponent's moves - we have no gradient to take through Stockfish's
     move choice, so those plies simply aren't part of the trajectory).
-    `result` is from the network's own point of view, already accounting
-    for which color it played that game. `termination` says how the game
-    ended: a lower-cased chess.Termination name ("checkmate", "stalemate",
-    "threefold_repetition", ...), or "max_plies" if it was cut off at
-    max_plies with no claimable draw (still scored as a draw).
+    `entropies` has the policy's entropy over the legal moves at each of
+    those moves (for the entropy bonus in train_rl.py), and `materials`
+    the material balance (network minus opponent, in pawns) just *before*
+    each of them, plus one final entry for the end of the game - so
+    materials[t + 1] - materials[t] is what network move t (and the
+    opponent's reply) changed. `result` is from the network's own point of
+    view, already accounting for which color it played that game.
+    `termination` says how the game ended: a lower-cased chess.Termination
+    name ("checkmate", "stalemate", "threefold_repetition", ...),
+    "resignation" if the opponent engine returned no move (scored as a
+    win), or "max_plies" if it was cut off at max_plies with no claimable
+    draw (still scored as a draw).
     """
 
     log_probs: List[torch.Tensor] = field(default_factory=list)
+    entropies: List[torch.Tensor] = field(default_factory=list)
+    materials: List[int] = field(default_factory=list)
     result: str = "draw"  # one of "win", "loss", "draw"
     termination: str = "max_plies"
     nb_plies: int = 0
@@ -65,13 +74,24 @@ DRAW_REASONS = (
     "seventyfive_moves",
 )
 
+PIECE_VALUES = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}
+
+
+def material_balance(board: chess.Board, color: chess.Color) -> int:
+    """Material of `color` minus its opponent's, in pawns (P=1, N=B=3,
+    R=5, Q=9, kings not counted)."""
+    return sum(
+        value * (len(board.pieces(piece, color)) - len(board.pieces(piece, not color)))
+        for piece, value in PIECE_VALUES.items()
+    )
+
 
 def select_network_moves(
     model: torch.nn.Module, boards: List[chess.Board], device: torch.device, greedy: bool = False
-) -> List[Tuple[chess.Move, torch.Tensor]]:
+) -> List[Tuple[chess.Move, torch.Tensor, torch.Tensor]]:
     """Ask the policy network for one move per board, over each board's
-    legal moves, and return one (chosen_move, log_prob_of_that_move) pair
-    per board.
+    legal moves, and return one (chosen_move, log_prob_of_that_move,
+    entropy_over_legal_moves) triple per board.
 
     All boards go through the network in a single batched forward pass -
     one GPU call for every game currently waiting on the network, instead
@@ -120,7 +140,7 @@ def select_network_moves(
         log_prob = distribution.log_prob(chosen_idx)
 
         chosen_move, _, _ = candidates[int(chosen_idx.item())]
-        choices.append((chosen_move, log_prob))
+        choices.append((chosen_move, log_prob, distribution.entropy()))
     return choices
 
 
@@ -162,16 +182,23 @@ def play_games(
     boards = [chess.Board() for _ in range(nb_games)]
     trajectories = [GameTrajectory() for _ in range(nb_games)]
     nb_getters = len(opponent_move_getters)
+    # Games where the opponent engine returned no move (see
+    # make_engine_move_getter()) - ended as a resignation, won by the network.
+    resigned = [False] * nb_games
 
     def is_active(i: int) -> bool:
-        return not boards[i].is_game_over() and trajectories[i].nb_plies < max_plies
+        return not resigned[i] and not boards[i].is_game_over() and trajectories[i].nb_plies < max_plies
 
     def network_to_move(i: int) -> bool:
         return (boards[i].turn == chess.WHITE) == network_plays_white[i]
 
     def play_opponent_moves(getter_idx: int, game_indices: List[int]) -> None:
         for i in game_indices:
-            boards[i].push(opponent_move_getters[getter_idx](boards[i]))
+            move = opponent_move_getters[getter_idx](boards[i])
+            if move is None:
+                resigned[i] = True
+                continue
+            boards[i].push(move)
             trajectories[i].nb_plies += 1
 
     with ThreadPoolExecutor(max_workers=nb_getters) as pool:
@@ -182,11 +209,13 @@ def play_games(
 
             net_games = [i for i in active if network_to_move(i)]
             if net_games:
-                for i, (move, log_prob) in zip(
+                for i, (move, log_prob, entropy) in zip(
                     net_games, select_network_moves(model, [boards[i] for i in net_games], device, greedy=greedy)
                 ):
+                    trajectories[i].materials.append(material_balance(boards[i], boards[i].turn))
                     boards[i].push(move)
                     trajectories[i].log_probs.append(log_prob)
+                    trajectories[i].entropies.append(entropy)
                     trajectories[i].nb_plies += 1
 
             opp_games = [i for i in range(nb_games) if is_active(i) and not network_to_move(i)]
@@ -197,7 +226,12 @@ def play_games(
                 # list() re-raises any exception from a worker thread here.
                 list(pool.map(play_opponent_moves, range(nb_getters), by_getter))
 
-    for board, trajectory, plays_white in zip(boards, trajectories, network_plays_white):
+    for board, trajectory, plays_white, has_resigned in zip(boards, trajectories, network_plays_white, resigned):
+        trajectory.materials.append(material_balance(board, chess.WHITE if plays_white else chess.BLACK))
+        if has_resigned:
+            trajectory.termination = "resignation"
+            trajectory.result = "win"
+            continue
         outcome = board.outcome(claim_draw=True)
         trajectory.termination = "max_plies" if outcome is None else outcome.termination.name.lower()
         if outcome is None or outcome.winner is None:
@@ -270,11 +304,16 @@ def make_engine_move_getter(engine: "chess.engine.SimpleEngine", movetime_second
     """Wrap a running UCI engine (see train_rl.py for how it's opened and
     configured) as a plain MoveGetter. Works with any UCI-speaking engine -
     Stockfish, Sunfish (pure Python, see torch_model/rl_training.md), or
-    anything else - since it only relies on the standard `play` command."""
+    anything else - since it only relies on the standard `play` command.
+
+    Returns None when the engine plays no move (`bestmove (none)`, or a
+    resignation - Sunfish does this when it sees itself lost); play_games()
+    then ends that game as a win for the network."""
     limit = chess.engine.Limit(time=movetime_seconds)
 
-    def get_move(board: chess.Board) -> chess.Move:
-        return engine.play(board, limit).move
+    def get_move(board: chess.Board) -> Optional[chess.Move]:
+        result = engine.play(board, limit)
+        return None if result.resigned else result.move
 
     return get_move
 
