@@ -693,3 +693,167 @@ a learning signal, whether that is enough shows only in a full run.
    input.
 4. **Mixed opponents** (random plus Stockfish Skill 0) until the training
    loss rate against Stockfish drops below ~90%.
+
+## 10) Supervised training on Stockfish labels (2026-10-02)
+
+### Why
+
+The RL runs after section 9's fixes (wandb `chltxxxf`, `lawjatjw`,
+`zuhcijgf`) barely moved: p00 and p01 end at about 0.82 wins vs random,
+like before, and p02 - now against Stockfish Skill 0 - still lost 99% of
+its training games while its win rate vs random fell from 0.62 to 0.48.
+The warm start barely matters either (p00 from scratch reaches the same
+0.82 as warm-started p01). The limits are elsewhere:
+
+1. **The network never looks ahead.** It picks a move from one forward
+   pass, in training and in Mate ([`chess::mlMove`](../src/chess_ML.cpp)
+   plays the top-scoring move), while even Stockfish Skill 0 searches.
+2. **No learning signal against Stockfish** (section 9, finding 1) - the
+   material reward doesn't replace it.
+3. **A weak teacher.** Human moves from games that end in resignation:
+   no mating technique, plenty of mistakes.
+
+This section fixes 3: the supervised network now imitates Stockfish
+instead of humans, and gets a value output for later use in a search (1).
+
+### Measured label quality
+
+On a 200-game test dataset, labelled at depth 6 and checked against a
+depth-12 search, the labelled move loses on average **25 centipawns
+(median 6)**, the human move **81 (median 14)**. The default depth is 10,
+stronger still. Only 38% of the human moves equal Stockfish's choice.
+
+Labels are not bit-reproducible: Stockfish keeps hash and history between
+positions, so at low depth it picks between near-equal moves differently
+(at depth 6 it agreed with its own earlier answer in 40 of 60 positions).
+That is tie-break noise, not a quality problem.
+
+### Pipeline
+
+| Step | What | Where |
+| --- | --- | --- |
+| Generate | `generate_chess_tensor.py` also stores each position's FEN (`fen_array`) - the canonicalized tensor drops side to move and en passant, so it can't be turned back into an exact position | [generate_chess_tensor.py](data_preparation/generate_chess_tensor.py) |
+| Label | `label_with_stockfish.py` analyses every position (one Stockfish per CPU core, depth 10 by default) and writes `<name>.sflabels.npz` next to the dataset: best move as canonical from/to squares, evaluation in centipawns (mates = ±10000) and `value = tanh(cp / 400)` | [label_with_stockfish.py](data_preparation/label_with_stockfish.py) |
+| Train | `label_source: "stockfish"` swaps the human move labels for Stockfish's and adds the `value` target; `value_head: true` gives `ChessCNN` a third output (value in [-1, 1] for the side to move); loss = CE(from) + CE(to) + `value_loss_weight` × MSE(value) | [chess_preparator.py](fdq/chess_preparator.py), [chess_cnn.py](fdq/chess_cnn.py), [train.py](fdq/train.py) |
+| Configs | `chess_cnn_sf_p00` (2k games) to `sf_p03` (100k), otherwise identical to `chess_cnn_p00`-`p03`; added to `train_all.sh` | [chess_cnn_sf_p00.yaml](fdq/chess_cnn_sf_p00.yaml) |
+
+[create_all.sh](data_preparation/create_all.sh) runs the labelling right
+after generating each dataset (`SKIP_LABEL=1` to skip, `SF_DEPTH=8` for
+~2x faster labels). Measured speed: about 8 ms per position per core at
+depth 10, so on 4 cores ~10 min for the 10k dataset, ~1.7 h for 50k and
+~3.4 h for 100k. Labelling works in resumable shards of 50k positions;
+each labels file carries a SHA-1 fingerprint of the dataset's FENs, so
+labels of a since-regenerated dataset are rejected at training time, and
+an already labelled, unchanged dataset is skipped instead of relabelled.
+
+Datasets generated before this change have no FENs: regenerate them with
+`create_all.sh` before labelling.
+
+### Compatibility
+
+- **ONNX:** `value` is the *third* output, after `from_logits` and
+  `to_logits`. `src/chess_ML.cpp` checks for at least 2 outputs and reads
+  the first two, so Mate plays these models unchanged (ignoring the value).
+- **Test metric:** with `label_source: "stockfish"`, `chess_evaluator.py`'s
+  test accuracy measures agreement with Stockfish, not with humans - not
+  comparable to the `chess_cnn_p0*` numbers.
+- **RL warm start:** `load_init_weights()` drops a `value_head: true`
+  checkpoint's value weights when `chessRL` has no value head (RL doesn't
+  use the value), so any supervised checkpoint warm-starts p01-p03.
+  [train_all.sh](fdq/train_all.sh) does this automatically: after the
+  supervised phase it passes the best_val checkpoint of the last
+  `chess_cnn_sf_*` experiment that succeeded in the batch (sf_p03, else
+  sf_p02, ...) to p01-p03 as `train.args.init_weights_path`, without
+  editing the configs. `AUTO_WARMSTART=0` turns this off (the configs'
+  own `init_weights_path` is used).
+
+### Next steps
+
+1. Run `create_all.sh`, then the `chess_cnn_sf_*` experiments, and compare
+   against `chess_cnn_p0*` on games (vs random / Stockfish Skill 0), not
+   on test accuracy.
+2. Use the value output in a search: the move scores to order moves in
+   Mate's alpha-beta (`smartMoveR`), the value to evaluate leaf positions -
+   or a 1-2 ply search in `rl_self_play.py` for validation games.
+3. Only then RL again, rewarding each move by the change in Stockfish's
+   evaluation, and with a bigger network (residual blocks, joint move head).
+
+## 11) Ideas for the next RL iteration (2026-10-02)
+
+Collected after the RL runs of section 10's "Why" (all ending at about
+0.82 wins vs random, none beating Stockfish Skill 0 or Sunfish), as
+candidates for the iteration after the `chess_cnn_sf_*` warm-started
+batch. They come on top of section 10's next steps (Stockfish labels,
+search with the value output, bigger network). Ordered by expected
+benefit per effort - 1 and 2 first, they reuse code that already exists.
+
+### 1. DAgger: Stockfish labels on the network's own positions
+
+Play games with the network, label the positions *it actually reaches*
+with Stockfish's best move (and evaluation), and add them to the
+supervised training set; repeat for a few rounds.
+
+- **Why:** the network drifts into positions that never occur in human
+  games - won endgames it can't convert, piece shuffling that ends in
+  fivefold repetition or stalemate - and has never been taught what to do
+  there (distribution shift). DAgger trains it exactly on those positions,
+  and needs no reward at all, so it sidesteps the weak RL signal.
+- **Effort:** low. Self-play exists (`play_games()` in
+  [rl_self_play.py](fdq/rl_self_play.py)), and so does the parallel
+  labelling ([label_with_stockfish.py](data_preparation/label_with_stockfish.py),
+  which only needs FENs). Missing: a script that plays N games, collects
+  FENs + board tensors into a `.chessarray`, labels it, and a config that
+  trains on the original dataset plus these files.
+
+### 2. Stockfish evaluation change as reward, plus a KL anchor
+
+- **Reward:** after each network move, ask Stockfish for the evaluation
+  (depth ~8, about 3 ms) and reward the move with the change in
+  `tanh(cp / 400)` from the network's point of view, instead of material
+  (`material_reward_scale`). Every move gets a meaningful score even in a
+  lost game - p02 lost 99% of its games, so under the current reward
+  every one of its moves was simply "bad".
+- **KL anchor:** keep a frozen copy of the warm-start model and add
+  `beta * KL(policy || warm-start policy)` over the legal moves to the
+  loss, so RL can't drift far from the supervised knowledge. This targets
+  p02's degradation (win rate vs random fell from 0.62 to 0.48 during
+  training).
+- **Effort:** medium - the training engines are already open in
+  `train_rl.py`; `move_returns()` and the loss need the new terms.
+
+### 3. Actor-critic with the value head
+
+The `chess_cnn_sf_*` models already predict the position's value. Keep
+`value_head: true` on `chessRL` (today `load_init_weights()` drops it),
+and use the advantage `r + gamma * V(s') - V(s)` instead of return minus
+the batch-mean baseline (`use_baseline`), training the value head on the
+returns at the same time. Much less noisy per-move credit than a single
+baseline per batch.
+
+### 4. Repetition and move-counter input planes
+
+The 16-channel input has no history: the network can't see that a
+position is repeating, nor the 50-move counter - one reason for the many
+`fivefold_repetition` draws. Add one or two planes (repetition count of
+the current position, halfmove clock / 100). Changes the encoding in
+[chess_encoding.py](fdq/chess_encoding.py) *and*
+[generate_chess_tensor.py](data_preparation/generate_chess_tensor.py)
+(datasets must be regenerated) and `board_to_input()` in
+[src/chess_ML.cpp](../src/chess_ML.cpp).
+
+### 5. Mixed opponents / league
+
+Train against a mixture instead of one fixed engine, e.g. 20% random, 40%
+Stockfish Skill 0, 40% earlier snapshots of the network itself. There is
+then always a mix of wins and losses to learn from, and the snapshot
+opponents get stronger with the network (the core idea of AlphaZero-style
+self-play). Needs: per-game opponent selection in `play_games()` (it
+already takes one move getter per game slot) and periodically saved
+snapshots.
+
+### 6. Steadier updates
+
+`games_per_update: 8` with plain REINFORCE gives very noisy steps. Larger
+batches (32-64 games per update), and a clipped PPO objective with a few
+optimization passes per batch, would make training more stable and
+sample-efficient.

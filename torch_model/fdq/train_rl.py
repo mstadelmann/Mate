@@ -41,7 +41,10 @@ def load_init_weights(experiment: fdqExperiment, model: torch.nn.Module, init_we
     whole fdq checkpoint (epoch counter, optimizer, ...) of the *same*
     experiment. Only the weights are copied, in place (load_state_dict), so
     the optimizer fdq already built around the model's parameters stays
-    valid. Architectures must match exactly (strict=True raises otherwise).
+    valid. Architectures must match exactly (strict=True raises otherwise),
+    with one exception: a source trained with ChessCNN's value_head (the
+    chess_cnn_sf_* configs) loads into a chessRL without one - its
+    value_head.* weights are dropped, since RL doesn't use the value output.
 
     Skipped when resuming (start_epoch > 0): the resumed checkpoint already
     holds the RL-trained weights, which must not be overwritten.
@@ -55,6 +58,11 @@ def load_init_weights(experiment: fdqExperiment, model: torch.nn.Module, init_we
     # .fdqm files are whole pickled models (torch.save(model)), not state dicts.
     source = torch.load(path, weights_only=False, map_location=experiment.device)
     state_dict = source.state_dict() if isinstance(source, torch.nn.Module) else source
+    if not any(k.startswith("value_head.") for k in model.state_dict()):
+        dropped = [k for k in state_dict if k.startswith("value_head.")]
+        if dropped:
+            iprint(f"Warm start: ignoring the source's value head ({len(dropped)} tensors) - chessRL has none.")
+            state_dict = {k: v for k, v in state_dict.items() if not k.startswith("value_head.")}
     model.load_state_dict(state_dict, strict=True)
 
 

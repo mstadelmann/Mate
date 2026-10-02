@@ -1,3 +1,4 @@
+import hashlib
 import os
 import pickle
 from typing import Any, Dict
@@ -32,9 +33,14 @@ class ChessDataset(Dataset):
     and "from_array" / "to_array" (N,) integer square labels (0-63) for the
     move actually played from each position. Newer files also hold
     "game_array" (see find_game_starts()).
+
+    label_source="stockfish" replaces those human move labels by Stockfish's
+    best move from the sidecar `<name>.sflabels.npz` written by
+    data_preparation/label_with_stockfish.py, and adds its evaluation as a
+    "value" target in [-1, 1] (for ChessCNN's value_head).
     """
 
-    def __init__(self, pickle_path: str) -> None:
+    def __init__(self, pickle_path: str, label_source: str = "human") -> None:
         with open(pickle_path, "rb") as fn:
             # trunk-ignore(bandit/B301)
             chess_tensor = pickle.load(fn)
@@ -49,15 +55,41 @@ class ChessDataset(Dataset):
             game_array = np.cumsum(find_game_starts(self.board_in_array)) - 1
         self.game_array = game_array
 
+        self.value_array = None
+        if label_source == "stockfish":
+            sf_path = os.path.splitext(pickle_path)[0] + ".sflabels.npz"
+            if not os.path.exists(sf_path):
+                raise FileNotFoundError(
+                    f"{sf_path} not found - label the dataset first: "
+                    "torch_model/data_preparation/label_with_stockfish.py (or create_all.sh)"
+                )
+            sf_labels = np.load(sf_path)
+            # Same fingerprint as label_with_stockfish.fen_fingerprint().
+            fen_array = chess_tensor.get("fen_array", None)
+            if len(sf_labels["from_array"]) != len(self.from_array) or (
+                fen_array is not None
+                and hashlib.sha1(np.ascontiguousarray(fen_array).tobytes()).hexdigest() != str(sf_labels["fen_sha1"])
+            ):
+                raise ValueError(f"{sf_path} doesn't match {pickle_path} - relabel it after regenerating the dataset")
+            self.from_array = sf_labels["from_array"]
+            self.to_array = sf_labels["to_array"]
+            self.value_array = sf_labels["value_array"]
+            print(f"Using Stockfish labels (depth {int(sf_labels['depth'])}) from {sf_path}")
+        elif label_source != "human":
+            raise ValueError(f"label_source must be 'human' or 'stockfish', not '{label_source}'")
+
     def __len__(self) -> int:
         return self.board_in_array.shape[0]
 
     def __getitem__(self, i: int) -> Dict[str, np.ndarray]:
-        return {
+        sample = {
             "inputs": self.board_in_array[i, ...].astype(np.float32),
             "from_label": self.from_array[i].astype(np.int64),
             "to_label": self.to_array[i].astype(np.int64),
         }
+        if self.value_array is not None:
+            sample["value"] = self.value_array[i]
+        return sample
 
 
 def create_datasets(experiment, args) -> Dict[str, Any]:
@@ -69,8 +101,9 @@ def create_datasets(experiment, args) -> Dict[str, Any]:
 
     base_path = os.path.expanduser(args.base_path)
 
-    train_set_all = ChessDataset(os.path.join(base_path, args.train_set))
-    test_set = ChessDataset(os.path.join(base_path, args.test_set))
+    label_source = getattr(args, "label_source", "human")
+    train_set_all = ChessDataset(os.path.join(base_path, args.train_set), label_source)
+    test_set = ChessDataset(os.path.join(base_path, args.test_set), label_source)
 
     # Hold out whole games (val_ratio of them) for validation, not random
     # positions: consecutive positions of one game are nearly identical, so

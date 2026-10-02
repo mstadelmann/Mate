@@ -29,7 +29,7 @@ def _evaluate_batch(experiment, model_name: str, batch, verbose: bool = False) -
         print(array_to_board(torch.squeeze(inputs, 0).numpy()))
         print(f"\nTarget: from={int(from_label.item())}, to={int(to_label.item())}")
 
-    from_logits, to_logits = model(inputs.to(experiment.device))
+    from_logits, to_logits = model(inputs.to(experiment.device))[:2]  # ignore a value output, if any
     pred_from = torch.argmax(from_logits, dim=1).cpu()
     pred_to = torch.argmax(to_logits, dim=1).cpu()
 
@@ -112,7 +112,7 @@ def fdq_test(experiment):
         infield = torch.from_numpy(board_to_array(board)).unsqueeze(0)
 
         model = experiment.models[model_name]
-        from_logits, to_logits = model(infield.to(experiment.device))
+        from_logits, to_logits = model(infield.to(experiment.device))[:2]
 
         top_from = torch.topk(from_logits.squeeze(0), k=3).indices.cpu().tolist()
         top_to = torch.topk(to_logits.squeeze(0), k=3).indices.cpu().tolist()

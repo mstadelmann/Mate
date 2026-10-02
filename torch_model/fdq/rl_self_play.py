@@ -115,7 +115,7 @@ def select_network_moves(
     deliberately-exploratory alternative.
     """
     board_tensor = torch.stack([torch.from_numpy(board_to_array(board)) for board in boards]).to(device)
-    all_from_logits, all_to_logits = model(board_tensor)
+    all_from_logits, all_to_logits = model(board_tensor)[:2]  # ignore a value output, if any
 
     choices = []
     for board, from_logits, to_logits in zip(boards, all_from_logits, all_to_logits):

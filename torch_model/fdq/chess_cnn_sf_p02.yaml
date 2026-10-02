@@ -1,0 +1,16 @@
+defaults:
+  - chess_cnn_sf_p00
+
+globals:
+  project: Chess
+  author: Marc
+  comment: >
+    Same as chess_cnn_sf_p00.yaml (Stockfish labels + value head), but on
+    the 50k-game dataset (nbGames50000) - generate and label it with
+    torch_model/data_preparation/create_all.sh 50k.
+
+data:
+  CHESS:
+    args:
+      train_set: "standard-chess-games_nbGames50000_minElo1800_train.chessarray"
+      test_set: "standard-chess-games_nbGames50000_minElo1800_test.chessarray"

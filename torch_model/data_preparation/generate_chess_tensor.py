@@ -209,7 +209,7 @@ def generate_tensors(
     games: List[Tuple[str, int, int]],
     max_plies_per_game: Optional[int],
     debug: bool,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Parse each game's movetext and emit one training example per ply, for
     both White and Black moves.
 
@@ -219,11 +219,15 @@ def generate_tensors(
         to_array: (N,) canonicalized "to" square index, 0-63
         game_array: (N,) index of the game each position comes from, so
             training can hold out whole games for validation
+        fen_array: (N,) FEN of each position (bytes) - the canonicalized
+            tensor drops side to move and en passant, so this is what
+            label_with_stockfish.py analyses
     """
     board_in: List[np.ndarray] = []
     from_labels: List[int] = []
     to_labels: List[int] = []
     game_labels: List[int] = []
+    fens: List[str] = []
 
     tot_moves = 0
     for game_idx, (movetext, white_elo, black_elo) in enumerate(games):
@@ -247,6 +251,7 @@ def generate_tensors(
             from_labels.append(from_idx)
             to_labels.append(to_idx)
             game_labels.append(game_idx)
+            fens.append(board.fen())
 
             if debug:
                 print("-----------------------------------------")
@@ -276,11 +281,28 @@ def generate_tensors(
     from_array = np.array(from_labels, dtype=np.int64)
     to_array = np.array(to_labels, dtype=np.int64)
     game_array = np.array(game_labels, dtype=np.int64)
+    fen_array = np.array(fens, dtype=np.bytes_)
 
     print(f"\nGenerated {board_in_array.shape[0]} positions from {len(games)} games "
           f"(both colors included).")
 
-    return board_in_array, from_array, to_array, game_array
+    return board_in_array, from_array, to_array, game_array, fen_array
+
+
+def tensor_path(
+    output_dir: str,
+    hf_dataset_name: str,
+    number_of_games: int,
+    min_elo: int,
+    split_name: str,
+    ext: str = "chessarray",
+) -> str:
+    """Path of one split's pickle file - shared with label_with_stockfish.py."""
+    dataset_tag = hf_dataset_name.split("/")[-1]
+    filename = (
+        f"{dataset_tag}_nbGames{number_of_games}_minElo{min_elo}_{split_name}.{ext}"
+    )
+    return os.path.join(output_dir, filename)
 
 
 def save_tensor(
@@ -293,14 +315,11 @@ def save_tensor(
     from_array: np.ndarray,
     to_array: np.ndarray,
     game_array: np.ndarray,
+    fen_array: np.ndarray,
     ext: str = "chessarray",
 ) -> str:
     """Serialize one split to a pickle file and return the path."""
-    dataset_tag = hf_dataset_name.split("/")[-1]
-    filename = (
-        f"{dataset_tag}_nbGames{number_of_games}_minElo{min_elo}_{split_name}.{ext}"
-    )
-    out_path = os.path.join(output_dir, filename)
+    out_path = tensor_path(output_dir, hf_dataset_name, number_of_games, min_elo, split_name, ext)
 
     print(f"Saving {split_name} tensor data to {out_path}")
     os.makedirs(output_dir, exist_ok=True)
@@ -311,6 +330,7 @@ def save_tensor(
                 "from_array": from_array,
                 "to_array": to_array,
                 "game_array": game_array,
+                "fen_array": fen_array,
             },
             fn,
             # Protocol 5 writes the numpy arrays' memory directly; the
@@ -361,20 +381,20 @@ def main():
 
     print(f"Split: {len(train_games)} train games, {len(test_games)} test games")
 
-    train_in, train_from, train_to, train_game = generate_tensors(train_games, max_plies_per_game, debug)
+    train_in, train_from, train_to, train_game, train_fen = generate_tensors(train_games, max_plies_per_game, debug)
 
     if EXPORT_PICKLE:
         save_tensor(
             output_dir, hf_dataset_name, number_of_games, min_elo, "train",
-            train_in, train_from, train_to, train_game,
+            train_in, train_from, train_to, train_game, train_fen,
         )
 
     if test_games:
-        test_in, test_from, test_to, test_game = generate_tensors(test_games, max_plies_per_game, debug)
+        test_in, test_from, test_to, test_game, test_fen = generate_tensors(test_games, max_plies_per_game, debug)
         if EXPORT_PICKLE:
             save_tensor(
                 output_dir, hf_dataset_name, number_of_games, min_elo, "test",
-                test_in, test_from, test_to, test_game,
+                test_in, test_from, test_to, test_game, test_fen,
             )
 
     if debug:

@@ -13,6 +13,23 @@ from fdq.ui_functions import startProgBar, iprint
 from rl_self_play import close_engines, make_val_opponents, play_val_games
 
 
+def compute_loss(experiment: fdqExperiment, outputs, batch, value_loss_weight: float):
+    """(total, policy, value) loss of one batch: cross-entropy of the from-
+    and to-square heads, plus - if the model has a value output and the
+    batch a "value" target (label_source: stockfish, see
+    chess_preparator.py) - value_loss_weight x MSE of the value. `value` is
+    None when there is no value term."""
+    from_label = batch["from_label"].to(experiment.device)
+    to_label = batch["to_label"].to(experiment.device)
+    policy_loss = experiment.losses["ce_from"](outputs[0], from_label) + experiment.losses["ce_to"](
+        outputs[1], to_label
+    )
+    if len(outputs) < 3 or "value" not in batch:
+        return policy_loss, policy_loss, None
+    value_loss = torch.nn.functional.mse_loss(outputs[2], batch["value"].to(experiment.device))
+    return policy_loss + value_loss_weight * value_loss, policy_loss, value_loss
+
+
 def fdq_train(experiment: fdqExperiment) -> None:
     """Train the model using the provided experiment configuration.
 
@@ -24,6 +41,7 @@ def fdq_train(experiment: fdqExperiment) -> None:
     data = experiment.data["CHESS"]
     model_name = experiment.cfg.train.args.model_name
     model = experiment.models[model_name]
+    value_loss_weight: float = experiment.cfg.train.args.get("value_loss_weight", 1.0)
 
     # Determine the autocast device type from the experiment's device.
     device_type = getattr(getattr(experiment, "device", None), "type", "cpu")
@@ -64,6 +82,8 @@ def fdq_train(experiment: fdqExperiment) -> None:
 
             train_loss_sum = 0.0
             val_loss_sum = 0.0
+            val_policy_loss_sum = 0.0
+            val_value_loss_sum = 0.0
             model.train()
             pbar = startProgBar(data.n_train_samples, "training...")
 
@@ -71,15 +91,10 @@ def fdq_train(experiment: fdqExperiment) -> None:
                 pbar.update(nb_batch * experiment.cfg.data.CHESS.args.train_batch_size)
 
                 inputs = batch["inputs"].to(experiment.device).type(torch.float32)
-                from_label = batch["from_label"].to(experiment.device)
-                to_label = batch["to_label"].to(experiment.device)
 
                 with torch.autocast(device_type=device_type, enabled=experiment.useAMP):
-                    from_logits, to_logits = model(inputs)
-                    loss_tensor = (
-                        experiment.losses["ce_from"](from_logits, from_label)
-                        + experiment.losses["ce_to"](to_logits, to_label)
-                    ) / experiment.gradacc_iter
+                    loss_tensor, _, _ = compute_loss(experiment, model(inputs), batch, value_loss_weight)
+                    loss_tensor = loss_tensor / experiment.gradacc_iter
                     if experiment.useAMP and experiment.scaler is not None:
                         experiment.scaler.scale(loss_tensor).backward()
                     else:
@@ -100,27 +115,28 @@ def fdq_train(experiment: fdqExperiment) -> None:
             for nb_batch, batch in enumerate(data.val_data_loader):
                 pbar.update(nb_batch * experiment.cfg.data.CHESS.args.val_batch_size)
 
-                inputs = batch["inputs"]
-                from_label = batch["from_label"]
-                to_label = batch["to_label"]
-
                 with torch.no_grad():
-                    inputs = inputs.to(experiment.device)
-                    from_logits, to_logits = model(inputs)
-                    from_label = from_label.to(experiment.device)
-                    to_label = to_label.to(experiment.device)
-                    loss_tensor = experiment.losses["ce_from"](from_logits, from_label) + (
-                        experiment.losses["ce_to"](to_logits, to_label)
+                    inputs = batch["inputs"].to(experiment.device)
+                    loss_tensor, policy_loss, value_loss = compute_loss(
+                        experiment, model(inputs), batch, value_loss_weight
                     )
 
                 val_loss_sum += loss_tensor.detach().item()
-            experiment.valLoss = val_loss_sum / len(data.val_data_loader.dataset)
+                val_policy_loss_sum += policy_loss.detach().item()
+                if value_loss is not None:
+                    val_value_loss_sum += value_loss.detach().item()
+            nb_val_samples = len(data.val_data_loader.dataset)
+            experiment.valLoss = val_loss_sum / nb_val_samples
 
             pbar.finish()
 
             # Logged to wandb/tensorboard by on_epoch_end() below (fdq adds
             # train_loss / val_loss / epoch itself).
             log_scalars = {"lr": experiment.optimizers[model_name].param_groups[0]["lr"]}
+            if val_value_loss_sum:
+                # The two parts of val_loss, same per-sample scaling.
+                log_scalars["val_policy_loss"] = val_policy_loss_sum / nb_val_samples
+                log_scalars["val_value_loss"] = val_value_loss_sum / nb_val_samples
             if plateau_scheduler is not None:
                 plateau_scheduler.step(experiment.valLoss)
 
