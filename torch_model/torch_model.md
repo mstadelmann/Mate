@@ -88,6 +88,13 @@ cd torch_model/data_preparation
 python3 generate_chess_tensor.py --config chess_tensor_config_2k.yaml
 ```
 
+or regenerate all four datasets in one go (a subset with e.g.
+`./create_all.sh 50k 100k`):
+
+```bash
+torch_model/data_preparation/create_all.sh
+```
+
 This writes `<dataset>_nbGames{N}_minElo{E}_train.chessarray` and
 `..._test.chessarray` under `output_dir`.
 

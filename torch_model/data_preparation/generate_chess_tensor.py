@@ -214,7 +214,7 @@ def generate_tensors(
     both White and Black moves.
 
     Returns:
-        board_in_array: (N, 16, 8, 8)
+        board_in_array: (N, 16, 8, 8) uint8
         from_array: (N,) canonicalized "from" square index, 0-63
         to_array: (N,) canonicalized "to" square index, 0-63
         game_array: (N,) index of the game each position comes from, so
@@ -243,7 +243,7 @@ def generate_tensors(
             from_idx = square_to_canonical_index(move.from_square, mover_is_white)
             to_idx = square_to_canonical_index(move.to_square, mover_is_white)
 
-            board_in.append(in_array)
+            board_in.append(in_array.astype(np.uint8))  # see board_in_array below
             from_labels.append(from_idx)
             to_labels.append(to_idx)
             game_labels.append(game_idx)
@@ -268,7 +268,11 @@ def generate_tensors(
 
     print()
 
-    board_in_array = np.array(board_in, dtype=np.float32)
+    # uint8, not float32: every value is 0 or 1, so this is lossless and 4x
+    # smaller (100k games: ~6 GB instead of ~25 GB, which ran out of RAM).
+    # board_to_array() itself stays float32, matching the network input;
+    # ChessDataset casts each sample back to float32 when loading.
+    board_in_array = np.array(board_in, dtype=np.uint8)
     from_array = np.array(from_labels, dtype=np.int64)
     to_array = np.array(to_labels, dtype=np.int64)
     game_array = np.array(game_labels, dtype=np.int64)
@@ -309,6 +313,10 @@ def save_tensor(
                 "game_array": game_array,
             },
             fn,
+            # Protocol 5 writes the numpy arrays' memory directly; the
+            # default (4 on Python 3.12) first copies each into a bytes
+            # object, doubling peak RAM while saving.
+            protocol=pickle.HIGHEST_PROTOCOL,
         )
     print("saving done")
     return out_path

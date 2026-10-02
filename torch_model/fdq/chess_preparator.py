@@ -27,9 +27,11 @@ class ChessDataset(Dataset):
     """PyTorch dataset wrapping precomputed chess tensors from a pickle file.
 
     The pickle file is expected to contain three numpy arrays: "in_array"
-    (N, 16, 8, 8) canonicalized board positions, and "from_array" / "to_array"
-    (N,) integer square labels (0-63) for the move actually played from each
-    position.
+    (N, 16, 8, 8) canonicalized board positions (uint8 since 2026-10-02,
+    float32 in older files - either works, samples are cast to float32),
+    and "from_array" / "to_array" (N,) integer square labels (0-63) for the
+    move actually played from each position. Newer files also hold
+    "game_array" (see find_game_starts()).
     """
 
     def __init__(self, pickle_path: str) -> None:
