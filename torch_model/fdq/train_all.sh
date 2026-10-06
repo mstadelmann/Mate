@@ -9,15 +9,9 @@
 # Two phases:
 #   1. SUPERVISED: fc_p00-p03, cnn_p00-p03 (human moves), cnn_sf_p00-p03
 #      (Stockfish labels, see torch_model/rl_training.md section 10).
-#   2. RL: chess_rl_p00_random trains from scratch. With AUTO_WARMSTART=1
-#      (default, see below) the warm-started RL experiments start from the
-#      best_val checkpoint of the last chess_cnn_sf_* experiment that
-#      succeeded in phase 1 (sf_p03, else sf_p02, ...) - passed as a Hydra
-#      override, the config files stay untouched (fdq stores the composed
-#      config, including the path used, in each run's results folder). If no
-#      sf experiment succeeded, those RL experiments are skipped (reported as
-#      failed) rather than silently starting from another checkpoint.
-#      With AUTO_WARMSTART=0 they use their configs' own init_weights_path.
+#   2. RL: chess_rl_p00_random trains from scratch; p01-p03 warm-start from
+#      the init_weights_path set in chess_rl_p01_warmstart.yaml (p02/p03
+#      inherit it) - update it there by hand after retraining.
 #
 # Before training anything, every dataset file (and Stockfish labels file)
 # the supervised configs need is checked - missing ones abort immediately
@@ -42,18 +36,14 @@
 # batch with just 2 epochs each:
 #   torch_model/fdq/train_all.sh train.args.epochs=2
 # or to test-only every experiment instead of training it (no new
-# checkpoints, so disable the warm-start update):
-#   AUTO_WARMSTART=0 torch_model/fdq/train_all.sh mode.run_train=false mode.run_test_auto=true
+# checkpoints):
+#   torch_model/fdq/train_all.sh mode.run_train=false mode.run_test_auto=true
 #
-# Usage: [AUTO_WARMSTART=0] torch_model/fdq/train_all.sh [hydra overrides...]
+# Usage: torch_model/fdq/train_all.sh [hydra overrides...]
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# 1 = warm-start the RL experiments in WARMSTART_RL from this batch's newest
-# chess_cnn_sf_* checkpoint; 0 = keep their configs' own init_weights_path.
-AUTO_WARMSTART="${AUTO_WARMSTART:-1}"
 
 SUPERVISED=(
 	chess_fc_p00
@@ -77,41 +67,10 @@ RL=(
 	chess_rl_p03_sunfish
 )
 
-# RL experiments that get the warm-start checkpoint (p00 trains from scratch).
-WARMSTART_RL=(
-	chess_rl_p01_warmstart
-	chess_rl_p02_stockfish
-	chess_rl_p03_sunfish
-)
-
-# Where the warm-start checkpoint comes from: the first of these that
-# succeeded in this batch.
-WARMSTART_SOURCES=(
-	chess_cnn_sf_p03
-	chess_cnn_sf_p02
-	chess_cnn_sf_p01
-	chess_cnn_sf_p00
-)
-
 if ! command -v fdq >/dev/null 2>&1; then
 	echo "error: 'fdq' not found on PATH - pip install -r ${SCRIPT_DIR}/requirements.txt (in the right venv) first." >&2
 	exit 1
 fi
-
-# Prints one value of an experiment's composed config (with this script's
-# Hydra overrides applied), e.g. `cfg_value chess_cnn_p00 store.results_path`.
-cfg_value() {
-	local exp="$1" key="$2"
-	shift 2
-	python3 - "$SCRIPT_DIR" "$exp" "$key" "$@" <<'EOF'
-import sys
-from hydra import compose, initialize_config_dir
-from omegaconf import OmegaConf
-config_dir, exp, key, *overrides = sys.argv[1:]
-with initialize_config_dir(config_dir=config_dir, version_base=None):
-    print(OmegaConf.select(compose(config_name=exp, overrides=overrides), key))
-EOF
-}
 
 # --- Check all supervised datasets before training anything --------------
 echo "Checking datasets of the supervised experiments..."
@@ -151,13 +110,9 @@ export MPLBACKEND="${MPLBACKEND:-Agg}"
 
 LOG_DIR="${SCRIPT_DIR}/logs/train_all_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOG_DIR"
-# Run folders newer than this marker were created by this batch.
-touch "${LOG_DIR}/.batch_start"
-
 failed=()
 succeeded=()
 
-# run_experiment <experiment> [extra hydra overrides...] (after "$@")
 run_experiment() {
 	local exp="$1"
 	shift
@@ -165,7 +120,6 @@ run_experiment() {
 	echo
 	echo "=================================================================="
 	echo "Training ${exp}  (log: ${log_file})"
-	[ "$#" -gt 0 ] && echo "  overrides: $*"
 	echo "=================================================================="
 
 	if fdq --config-path "$SCRIPT_DIR" --config-name "$exp" "$@" 2>&1 | tee "$log_file"; then
@@ -176,63 +130,14 @@ run_experiment() {
 	fi
 }
 
-contains() {
-	local item="$1"
-	shift
-	local x
-	for x in "$@"; do [ "$x" = "$item" ] && return 0; done
-	return 1
-}
-
-# --- Phase 1: supervised --------------------------------------------------
-for exp in "${SUPERVISED[@]}"; do
+for exp in "${SUPERVISED[@]}" "${RL[@]}"; do
 	run_experiment "$exp" "$@"
-done
-
-# --- Pick the RL warm-start checkpoint ------------------------------------
-warmstart_path=""
-warmstart_note="config's own init_weights_path (AUTO_WARMSTART=0)"
-if [ "$AUTO_WARMSTART" = "1" ]; then
-	warmstart_note="none - no chess_cnn_sf_* experiment succeeded, warm-started RL skipped"
-	for src in "${WARMSTART_SOURCES[@]}"; do
-		contains "$src" "${succeeded[@]}" || continue
-		results_dir="$(cfg_value "$src" store.results_path "$@" 2>/dev/null)/$(cfg_value "$src" globals.project "$@" 2>/dev/null)/${src}"
-		results_dir="${results_dir/#\~/$HOME}"
-		# This batch's run folder of $src, then its best_val model.
-		run_dir=$(find "$results_dir" -mindepth 1 -maxdepth 1 -type d -newer "${LOG_DIR}/.batch_start" -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
-		[ -n "$run_dir" ] || continue
-		candidate=$(find "$run_dir" -maxdepth 1 -name 'best_val_*.fdqm' ! -name '*temp_copy*' -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
-		if [ -n "$candidate" ]; then
-			warmstart_path="$candidate"
-			warmstart_note="$warmstart_path"
-			break
-		fi
-	done
-fi
-echo
-echo "=================================================================="
-echo "RL warm start: ${warmstart_note}"
-echo "=================================================================="
-
-# --- Phase 2: RL ----------------------------------------------------------
-for exp in "${RL[@]}"; do
-	if [ "$AUTO_WARMSTART" = "1" ] && contains "$exp" "${WARMSTART_RL[@]}"; then
-		if [ -z "$warmstart_path" ]; then
-			echo "!! ${exp} skipped - no warm-start checkpoint (see above)" >&2
-			failed+=("$exp")
-			continue
-		fi
-		run_experiment "$exp" "$@" "train.args.init_weights_path=${warmstart_path}"
-	else
-		run_experiment "$exp" "$@"
-	fi
 done
 
 echo
 echo "=================================================================="
 echo "Summary"
 echo "=================================================================="
-echo "RL warm start: ${warmstart_note}"
 echo "Succeeded (${#succeeded[@]}): ${succeeded[*]:-none}"
 echo "Failed    (${#failed[@]}): ${failed[*]:-none}"
 

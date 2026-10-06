@@ -5,10 +5,9 @@ globals:
   project: Chess
   author: Marc
   comment: >
-    Warm start: RL fine-tuning of the best supervised CNN (chess_cnn_p01,
-    run fervent_keller, best_val epoch 148 - highest test accuracy, and
-    68/100 greedy wins vs random before any RL) instead of training from
-    random weights. Trains and evaluates against "random", since the
+    Warm start: RL fine-tuning of the Stockfish-labelled supervised CNN
+    (chess_cnn_sf_p03, run distracted_kalam, best_val epoch 143) instead
+    of training from random weights. Trains and evaluates against "random", since the
     supervised model still loses almost every game against Stockfish
     Skill Level 0 - see rl_training.md section 8.
 
@@ -20,7 +19,7 @@ models:
 
 train:
   args:
-    init_weights_path: "~/data_ML/results/Chess/chess_cnn_p01/20260930_03_20_44__hopeful_babbage/best_val_chessCNN_e791_temp_copy.fdqm"
+    init_weights_path: "~/data_ML/results/Chess/chess_cnn_sf_p03/20261004_02_30_06__distracted_kalam/best_val_chessCNN_e143.fdqm"
     freeze_batchnorm_stats: true # keep the supervised BatchNorm statistics
     engine_command: "random"
 

@@ -760,12 +760,10 @@ Datasets generated before this change have no FENs: regenerate them with
 - **RL warm start:** `load_init_weights()` drops a `value_head: true`
   checkpoint's value weights when `chessRL` has no value head (RL doesn't
   use the value), so any supervised checkpoint warm-starts p01-p03.
-  [train_all.sh](fdq/train_all.sh) does this automatically: after the
-  supervised phase it passes the best_val checkpoint of the last
-  `chess_cnn_sf_*` experiment that succeeded in the batch (sf_p03, else
-  sf_p02, ...) to p01-p03 as `train.args.init_weights_path`, without
-  editing the configs. `AUTO_WARMSTART=0` turns this off (the configs'
-  own `init_weights_path` is used).
+  p01-p03 start from the `chess_cnn_sf_p03` best_val checkpoint (run
+  `distracted_kalam`, epoch 143), set as `init_weights_path` in
+  [chess_rl_p01_warmstart.yaml](fdq/chess_rl_p01_warmstart.yaml) and
+  inherited by p02/p03.
 
 ### Next steps
 
