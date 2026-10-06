@@ -1,0 +1,23 @@
+defaults:
+  - chess_rl_p01_warmstart
+
+globals:
+  project: Chess
+  author: Marc
+  comment: >
+    Curriculum rung 3: trains and evaluates against a real Stockfish
+    binary instead of Sunfish (see chess_rl_p01_sunfish.yaml for rung 2),
+    using its "Skill Level" option (0-20) to start beatable rather than
+    full-strength. Skill Level 0 with a 10ms movetime: at Skill 5 the
+    network lost every training game of a 500-epoch run (rl_training.md
+    section 8) - move up one level at a time once the training win rate
+    is above ~30%. engine_command below points at this machine's
+    pacman-installed binary - adjust it if Stockfish lives elsewhere (see
+    rl_training.md section 3).
+
+train:
+  args:
+    engine_command: "/usr/games/stockfish"
+    engine_uci_options: { "Skill Level": 0, "Threads": 1 } # 0 (weakest) - 20 (full strength)
+    engine_movetime_ms: 10
+    draw_reward: 0.0 # a draw against Stockfish is a good result, don't penalize it

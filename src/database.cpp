@@ -331,11 +331,18 @@ namespace
                                          { return std::isdigit(ch); });
             if (is_digits)
             {
-                int idx = std::stoi(choice);
-                if (idx >= 1 && idx <= static_cast<int>(games.size()))
+                try
                 {
-                    selectedName = games[idx - 1].first;
-                    break;
+                    int idx = std::stoi(choice);
+                    if (idx >= 1 && idx <= static_cast<int>(games.size()))
+                    {
+                        selectedName = games[idx - 1].first;
+                        break;
+                    }
+                }
+                catch (const std::out_of_range &)
+                {
+                    // Falls through to "Invalid selection" below.
                 }
             }
             for (const auto &g : games)
@@ -472,7 +479,7 @@ namespace
     }
 } // namespace
 
-void store_to_DB(const chess &currentGame)
+bool store_to_DB(const chess &currentGame)
 {
     sqlite3 *db = nullptr;
     int rc = sqlite3_open(db_path.c_str(), &db);
@@ -481,14 +488,14 @@ void store_to_DB(const chess &currentGame)
         fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
         if (db)
             sqlite3_close(db);
-        return;
+        return false;
     }
     debugMessage("Database opened successfully.\n");
 
     if (!ensure_moves_table(db) || !ensure_board_table(db))
     {
         sqlite3_close(db);
-        return;
+        return false;
     }
 
     const std::string game_name = currentGame.gameName();
@@ -502,6 +509,7 @@ void store_to_DB(const chess &currentGame)
     insert_moves(db, currentGame);
     insert_board_snapshots(db, currentGame);
     sqlite3_close(db);
+    return true;
 }
 
 static pieceType decode_square_code(const std::string &code)

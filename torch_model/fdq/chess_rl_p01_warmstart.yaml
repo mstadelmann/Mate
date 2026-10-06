@@ -1,0 +1,33 @@
+defaults:
+  - chess_rl_p00_random
+
+globals:
+  project: Chess
+  author: Marc
+  comment: >
+    Warm start: RL fine-tuning of the Stockfish-labelled supervised CNN
+    (chess_cnn_sf_p03, run distracted_kalam, best_val epoch 143) instead
+    of training from random weights. Trains and evaluates against "random", since the
+    supervised model still loses almost every game against Stockfish
+    Skill Level 0 - see rl_training.md section 8.
+
+models:
+  chessRL:
+    optimizer:
+      args:
+        lr: 0.0001 # lower than from scratch: fine-tune, don't overwrite the supervised knowledge
+
+train:
+  args:
+    init_weights_path: "~/data_ML/results/Chess/chess_cnn_sf_p03/20261004_02_30_06__distracted_kalam/best_val_chessCNN_e143.fdqm"
+    freeze_batchnorm_stats: true # keep the supervised BatchNorm statistics
+    engine_command: "random"
+
+test:
+  args:
+    nb_eval_games: 100
+    engine_command: "random"
+    # engine_command: "sunfish-uci"
+    # engine_command: "/usr/games/stockfish"
+    # engine_uci_options: { "Skill Level": 0 }
+

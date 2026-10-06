@@ -1,0 +1,30 @@
+# Source: Hugging Face `Lichess/standard-chess-games` (CC0), streamed - never
+# downloaded in full. https://huggingface.co/datasets/Lichess/standard-chess-games
+hf_dataset_name: "Lichess/standard-chess-games"
+
+# How many games to sample (after filtering). Kept small here so the
+# pipeline is fast to validate end-to-end on a machine with no GPU - raise
+# this a lot (e.g. into the hundreds of thousands) for an actual training
+# run on a GPU machine.
+number_of_games: 10000
+
+# Minimum Elo required for BOTH players.
+min_elo: 1800
+
+# Only keep games that ended cleanly (no aborts, rule violations, etc.).
+allowed_terminations:
+  - "Normal"
+
+# Cap plies kept per game (keeps very long endgames from dominating the
+# dataset). Set to null to keep full games.
+max_plies_per_game: 80
+
+# Fraction of the sampled games held out as a test set. Split by game (not
+# by position), so no single game's positions leak across train/test.
+test_ratio: 0.05
+
+# Where the generated .chessarray pickle files are written.
+output_dir: "~/data_ML/chess"
+
+EXPORT_PICKLE: true
+debug: false

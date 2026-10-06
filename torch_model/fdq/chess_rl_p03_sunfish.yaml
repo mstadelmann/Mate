@@ -1,0 +1,15 @@
+defaults:
+  - chess_rl_p01_warmstart
+
+globals:
+  project: Chess
+  author: Marc
+  comment: >
+    Curriculum rung 2: trains against "sunfish-uci" instead of "random"
+    Requires Sunfish (`pip install sunfish`).
+    for both training and testing.
+
+train:
+  args:
+    engine_command: "sunfish-uci"
+    draw_reward: 0.0 # a draw against Sunfish is a good result, don't penalize it

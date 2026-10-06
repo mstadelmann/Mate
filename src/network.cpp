@@ -340,8 +340,11 @@ void close_connection(NetConnection &conn)
 
 int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
 {
-    set_chess_gui_mode(gui, ChessGuiMode::network_game);
+    // Set the color before switching the mode: both are read under the same
+    // GUI mutex, so this ordering guarantees the drag-gate in gui.cpp never
+    // observes mode == network_game with a still-default local_player_color_.
     set_chess_gui_local_player_color(gui, conn.myPlaysWhite ? playerColor::white : playerColor::black);
+    set_chess_gui_mode(gui, ChessGuiMode::network_game);
     cout << (conn.myPlaysWhite ? "You are White." : "You are Black.") << endl;
     cout << "You: " << conn.myName << ", Opponent: " << conn.peerName << endl;
 
@@ -353,6 +356,28 @@ int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
         game.set_player_names(conn.peerName, conn.myName);
 
     print_network_help();
+
+    // Shared by both the CLI 'c' command and the GUI chat box, so a message
+    // sent from either surface is recorded the same way and shows up in the
+    // GUI's chat history regardless of which one sent it.
+    auto send_chat_message = [&](const std::string &message)
+    {
+        if (!send_line(conn.sock, std::string("CHAT ") + message))
+        {
+            return false;
+        }
+        ChessGuiChatState chat = get_chess_gui_chat_state(gui);
+        chat.messages.push_back("You: " + message);
+        set_chess_gui_chat_state(gui, chat);
+        return true;
+    };
+    auto record_incoming_chat = [&](const std::string &message)
+    {
+        cout << "\nMessage from " << conn.peerName << ": " << message << endl;
+        ChessGuiChatState chat = get_chess_gui_chat_state(gui);
+        chat.messages.push_back(conn.peerName + ": " + message);
+        set_chess_gui_chat_state(gui, chat);
+    };
 
     auto handle_gui_action = [&](const ChessGuiAction &action, bool my_turn, bool &move_sent, bool &terminate)
     {
@@ -379,12 +404,32 @@ int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
             move_sent = true;
             return;
         case ChessGuiActionType::list_moves:
+        {
             game.listLegalMoves();
+            const std::size_t count = game.findAllLegalMoves().size();
+            set_chess_gui_game_action_state(gui, {std::to_string(count) + " legal move(s) for " + game.current_player_string() + " (full list printed to the terminal)."});
             return;
+        }
         case ChessGuiActionType::write_db:
+        {
             cout << "Writing to database..." << endl;
-            store_to_DB(game);
+            const bool saved = store_to_DB(game);
+            set_chess_gui_game_action_state(gui, {saved ? "Game saved to the database." : "Could not save to the database (see terminal)."});
             return;
+        }
+        case ChessGuiActionType::send_chat:
+        {
+            ChessGuiChatState chat = get_chess_gui_chat_state(gui);
+            const std::string message = chat.pending_input;
+            chat.pending_input.clear();
+            set_chess_gui_chat_state(gui, chat);
+            if (!message.empty() && !send_chat_message(message))
+            {
+                cout << "Network error sending chat message." << endl;
+                terminate = true;
+            }
+            return;
+        }
         case ChessGuiActionType::quit_game:
             (void)send_line(conn.sock, "QUIT");
             cout << "You quit the game." << endl;
@@ -399,7 +444,7 @@ int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
     {
         game.detectCheckmate();
         sync_chess_gui(gui, game);
-        game.printCurrentGame();
+        game.printCurrentGame(conn.myPlaysWhite ? playerColor::white : playerColor::black);
 
         bool myTurnIsWhite = conn.myPlaysWhite;
         bool myTurn = myTurnIsWhite ? (game.current_player_string() == "white") : (game.current_player_string() == "black");
@@ -460,7 +505,7 @@ int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
                     }
                     if (line.rfind("CHAT ", 0) == 0)
                     {
-                        cout << "\nMessage from " << conn.peerName << ": " << line.substr(5) << endl;
+                        record_incoming_chat(line.substr(5));
                         continue;
                     }
                     if (line.rfind("MOVE ", 0) == 0)
@@ -535,7 +580,7 @@ int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
                             std::getline(std::cin, msg);
                             if (!msg.empty())
                             {
-                                if (!send_line(conn.sock, std::string("CHAT ") + msg))
+                                if (!send_chat_message(msg))
                                 {
                                     cout << "Network error sending chat." << endl;
                                     terminate = true;
@@ -632,7 +677,7 @@ int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
                     }
                     if (line.rfind("CHAT ", 0) == 0)
                     {
-                        cout << "\nMessage from " << conn.peerName << ": " << line.substr(5) << endl;
+                        record_incoming_chat(line.substr(5));
                         continue;
                     }
                     if (line.rfind("MOVE ", 0) == 0)
@@ -679,7 +724,7 @@ int run_network_game(chess &game, NetConnection &conn, ChessGui *gui)
                             std::getline(std::cin, msg);
                             if (!msg.empty())
                             {
-                                if (!send_line(conn.sock, std::string("CHAT ") + msg))
+                                if (!send_chat_message(msg))
                                 {
                                     cout << "Network error sending chat." << endl;
                                     terminated = true;

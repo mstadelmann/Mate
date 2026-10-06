@@ -1,0 +1,164 @@
+defaults:
+  - wandb_keys
+  - _self_
+
+globals:
+  project: Chess
+  author: Marc
+  comment: >
+    train.args.engine_command "random" = training opponent (no engine, random legal moves).
+    test.args.engine_command "random" = evaluation opponent, set independently.
+    Curriculum rung 1: train and test against the same (weak) opponent -
+    confirms it beats what it trained on.
+
+mode:
+  run_train: true
+  run_test_interactive: false
+  run_test_auto: true
+  dump_model: true
+  dump_model_interactive: false
+  run_inference: false
+  print_model_summary: false
+  resume_chpt_path: null # RL trains from scratch (random init) - see torch_model/rl_training.md
+
+models:
+  chessRL:
+    # Same architecture as chess_cnn_p00.yaml's "chessCNN" - only the key
+    # name differs, so exports stay distinguishable.
+    path: "~/dev/Mate/torch_model/fdq/chess_cnn.py"
+    class_name: "ChessCNN"
+    args:
+      nb_in_channels: 16
+      conv_channels: [64, 64, 128, 128]
+      kernel_size: 3
+    optimizer:
+      class_name: "torch.optim.Adam"
+      args:
+        lr: 0.0003
+
+train:
+  path: "~/dev/Mate/torch_model/fdq/train_rl.py"
+  args:
+    epochs: 500
+    use_GPU: true
+    use_AMP: false
+    accumulate_grad_batches: 1
+    early_stop_val_loss: 1000
+    early_stop_train_loss: 1000
+    early_stop_nan: 5
+    games_per_epoch: 100 # self-play games played per "epoch"
+    games_per_update: 8 # games averaged together before each gradient step
+    max_plies_per_game: 200 # safety cap; games rarely need this many plies
+    # Warm start: .fdqm model whose weights initialize chessRL (same
+    # ChessCNN architecture required). null = random init. Not fdq's
+    # trained_model_path/resume_chpt_path - see load_init_weights() in train_rl.py.
+    init_weights_path: null
+    # true = play/train with BatchNorm in eval mode (running stats frozen).
+    # Needed with init_weights_path, otherwise self-play overwrites the
+    # pretrained statistics - see rl_training.md section 8.
+    freeze_batchnorm_stats: false
+
+    # Learning signal - see move_returns() in train_rl.py and
+    # rl_training.md section 4. Setting all of these to their "off" values
+    # (gamma 1, scale 0, rewards 0, no baseline, coef 0) gives back plain
+    # game-result REINFORCE.
+    gamma: 0.99 # discount per network move: credit decays with distance from the result
+    material_reward_scale: 0.02 # per-move reward per pawn of material won (queen = 0.18)
+    draw_reward: -0.2 # < 0 pushes the network to actually finish won games
+    stalemate_when_ahead_reward: -0.5 # stalemating a beaten opponent is nearly a loss
+    use_baseline: true # subtract the batch's mean return (advantage instead of raw return)
+    entropy_coef: 0.01 # entropy bonus, keeps the policy exploring
+
+    engine_command: "random"
+    engine_uci_options: {} # UCI setoption params; empty for "random"/Sunfish, e.g. {"Skill Level": 0} for Stockfish
+    engine_movetime_ms: 50 # per-move think time cap; ignored for "random"
+    nb_engines: null # parallel engine processes playing the train/val games; null = one per CPU core
+
+    # Same opponents as the supervised configs (chess_cnn_p00 / chess_fc_p00),
+    # each logged as <log_name>/val_win_rate etc. select_best: true marks
+    # the one whose win rate picks the best_val checkpoint and drives early
+    # stopping. p01-p03 inherit this list unchanged via `defaults:` - a
+    # child overriding val: must restate the whole list (Hydra replaces
+    # lists, it can't override single entries). rdm plays 100 games (cheap,
+    # no engine process): with 20, one game is 5 points of win rate and
+    # the "best" checkpoint is mostly a lucky epoch.
+    val:
+      - log_name: rdm
+        nb_games: 100
+        max_plies_per_game: 200
+        engine_command: "random"
+        select_best: true
+      - log_name: stf_0
+        nb_games: 20
+        max_plies_per_game: 200
+        engine_command: "/usr/games/stockfish"
+        engine_uci_options: { "Skill Level": 0, "Threads": 1 }
+        engine_movetime_ms: 10
+      - log_name: sun
+        nb_games: 20
+        max_plies_per_game: 200
+        engine_command: "sunfish-uci"
+        engine_movetime_ms: 10
+
+# must stay present (as null), not omitted - fdq crashes if this key is
+# missing entirely. Loss is computed directly in train_rl.py instead.
+losses: null
+
+data:
+  # unused for training (self-play generates its own games) - only needed
+  # so mode.dump_model has example data to trace an export from. Hence
+  # train_batch_size=1 below: model_dump reads its example straight out of
+  # this loader (see get_example_tensor_auto() in fdq's dump.py), and
+  # src/chess_ML.cpp always calls the model with a single board.
+  CHESS:
+    processor: "~/dev/Mate/torch_model/fdq/chess_preparator.py"
+    args:
+      base_path: "~/data_ML/chess/"
+      train_set: "standard-chess-games_nbGames2000_minElo1800_train.chessarray"
+      test_set: "standard-chess-games_nbGames2000_minElo1800_test.chessarray"
+      subset_train: 1.0
+      subset_test: 1.0
+      val_ratio: 0.1
+      pin_memory: false
+      num_workers: 0
+      train_batch_size: 1
+      val_batch_size: 1
+      test_batch_size: 1
+      shuffle_train: false
+      shuffle_val: false
+      shuffle_test: false
+
+store:
+  results_path: "~/data_ML/results"
+  img_exp_nb: 4
+  save_last_model: true
+  save_best_val_model: true
+  save_best_train_model: true
+  checkpoint_frequency: 2
+  use_tensorboard: false
+  use_wandb: true
+  wandb_project: "ChessMate"
+  wandb_entity: "stmd"
+
+test:
+  processor: "~/dev/Mate/torch_model/fdq/rl_evaluator.py"
+  test_model: "best"
+  args:
+    nb_eval_games: 50
+    max_plies_per_game: 200
+    engine_command: "random"
+    # engine_command: "sunfish-uci"
+    engine_uci_options: {}
+    engine_movetime_ms: 50
+
+model_dump:
+  checkpoint: best_val
+  model_name: chessRL
+  input_source: CHESS
+  random_input: false
+  input_dtype: float32
+  onnx:
+    use_dynamo: false
+    opset_version: 12
+    input_names: ["board"]
+    output_names: ["from_logits", "to_logits"]

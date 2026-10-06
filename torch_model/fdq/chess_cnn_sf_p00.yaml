@@ -1,0 +1,32 @@
+defaults:
+  - chess_cnn_p00
+
+globals:
+  project: Chess
+  author: Marc
+  comment: >
+    Same as chess_cnn_p00.yaml (2k games), but trained on Stockfish's best
+    move (depth 10) instead of the human move in each position, plus a
+    value head trained on Stockfish's evaluation - see
+    torch_model/rl_training.md section 10. Needs the dataset's
+    .sflabels.npz sidecar: data_preparation/label_with_stockfish.py, or
+    create_all.sh, which labels every dataset after generating it.
+
+models:
+  chessCNN:
+    args:
+      value_head: true # third output, value in [-1, 1] for the side to move
+
+train:
+  args:
+    value_loss_weight: 1.0 # loss = CE(from) + CE(to) + weight * MSE(value)
+
+data:
+  CHESS:
+    args:
+      label_source: "stockfish" # "human" = the move played in the game
+
+model_dump:
+  onnx:
+    # value appended last: src/chess_ML.cpp reads outputs 0 and 1 only
+    output_names: ["from_logits", "to_logits", "value"]
