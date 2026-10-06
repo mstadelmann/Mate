@@ -14,7 +14,7 @@
 #      inherit it) - update it there by hand after retraining.
 #
 # Before training anything, every dataset file (and Stockfish labels file)
-# the supervised configs need is checked - missing ones abort immediately
+# the configs need is checked - missing ones abort immediately
 # instead of failing after a day of training.
 #
 # Prerequisites:
@@ -45,7 +45,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-SUPERVISED=(
+# Run in this order: supervised first, then RL.
+EXPERIMENTS=(
 	chess_fc_p00
 	chess_fc_p01
 	chess_fc_p02
@@ -58,9 +59,6 @@ SUPERVISED=(
 	chess_cnn_sf_p01
 	chess_cnn_sf_p02
 	chess_cnn_sf_p03
-)
-
-RL=(
 	chess_rl_p00_random
 	chess_rl_p01_warmstart
 	chess_rl_p02_stockfish
@@ -72,9 +70,9 @@ if ! command -v fdq >/dev/null 2>&1; then
 	exit 1
 fi
 
-# --- Check all supervised datasets before training anything --------------
-echo "Checking datasets of the supervised experiments..."
-missing=$(python3 - "$SCRIPT_DIR" "$@" "--" "${SUPERVISED[@]}" 2>/dev/null <<'EOF'
+# --- Check all datasets before training anything -------------------------
+echo "Checking datasets of all experiments..."
+missing=$(python3 - "$SCRIPT_DIR" "$@" "--" "${EXPERIMENTS[@]}" 2>/dev/null <<'EOF'
 import os, sys
 from hydra import compose, initialize_config_dir
 args = sys.argv[1:]
@@ -130,7 +128,7 @@ run_experiment() {
 	fi
 }
 
-for exp in "${SUPERVISED[@]}" "${RL[@]}"; do
+for exp in "${EXPERIMENTS[@]}"; do
 	run_experiment "$exp" "$@"
 done
 
